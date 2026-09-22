@@ -30,7 +30,7 @@ npm run ci             # biome ci src/ (CI mode)
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`): Runs on PRs and pushes to `main`. Matrix tests Node 20/22/24. Steps: `npm run ci` (Biome), `tsc`, `vitest --coverage` with JUnit XML. Uploads coverage to Codecov.
+- **CI** (`.github/workflows/ci.yml`): Runs on PRs and pushes to `main`. Matrix tests the minimum supported Node 22.22.2/24.15.0 versions and latest Node 26. Installs the committed lockfile with `npm ci`. Steps: `npm run ci` (Biome), `tsc`, `vitest --coverage` with JUnit XML. Uploads coverage to Codecov.
 - **Release** (`.github/workflows/release.yml`): Triggered by `v*` tags. Runs lint + tests then `npm publish` with provenance. Bump version in `package.json` and `src/cli.ts` (`McpServer` version string) before tagging.
 
 ## Code Style & Conventions

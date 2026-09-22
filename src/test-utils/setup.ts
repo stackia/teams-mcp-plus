@@ -296,7 +296,6 @@ vi.mock("node:fs", async () => {
     },
   };
 });
-vi.mock("@azure/identity", () => ({ DeviceCodeCredential: vi.fn() }));
 
 beforeEach(() => {
   vi.clearAllMocks();

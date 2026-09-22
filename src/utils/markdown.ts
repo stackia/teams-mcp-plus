@@ -4,7 +4,7 @@ import { marked } from "marked";
 
 // Create a JSDOM window for DOMPurify in Node.js environment
 const window = new JSDOM("").window;
-const createDOMPurify = DOMPurify(window as any);
+const createDOMPurify = DOMPurify(window);
 
 // Configure marked for Teams compatibility
 marked.setOptions({

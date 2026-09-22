@@ -233,7 +233,7 @@ npm run auth -- --tenant <tenant-id>
 ## 🔧 Configuration
 
 ### Prerequisites
-- Node.js 20.19+, 22.13+, or 24+
+- Node.js 22.22.2+, 24.15.0+, or 26+ (Node.js 20 is no longer supported)
 - Microsoft 365 account with appropriate permissions
 - Microsoft Graph delegated permissions for the scopes below
 

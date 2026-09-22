@@ -3,9 +3,10 @@ vi.unmock("node:fs");
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PublicClientApplication } from "@azure/msal-node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCachePlugin } from "../msal-cache.js";
-import { TenantStore } from "../tenants.js";
+import { authorityFor, TenantStore } from "../tenants.js";
 import { TENANT_A, TENANT_B, tenantProfile } from "../test-utils/tenants.js";
 
 let directory: string;
@@ -25,6 +26,47 @@ const context = (data: string, changed = true) =>
   }) as any;
 
 describe("tenant credential storage", () => {
+  it("round-trips saved accounts through the real MSAL cache and persists removals", async () => {
+    const profile = tenantProfile();
+    const environment = "login.windows.net";
+    const accountKey = `${profile.homeAccountId}-${environment}-${profile.tenantId}`;
+    await store.save(
+      profile,
+      JSON.stringify({
+        Account: {
+          [accountKey]: {
+            home_account_id: profile.homeAccountId,
+            environment,
+            realm: profile.tenantId,
+            local_account_id: profile.localAccountId,
+            username: profile.username,
+            authority_type: "MSSTS",
+          },
+        },
+        IdToken: {},
+        AccessToken: {},
+        RefreshToken: {},
+        AppMetadata: {},
+      })
+    );
+    const createApp = () =>
+      new PublicClientApplication({
+        auth: { clientId: profile.clientId, authority: authorityFor(profile.tenantId) },
+        cache: { cachePlugin: createCachePlugin(store, profile) },
+      });
+    const cache = createApp().getTokenCache();
+    const accounts = await cache.getAllAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      homeAccountId: profile.homeAccountId,
+      localAccountId: profile.localAccountId,
+      tenantId: profile.tenantId,
+    });
+    await cache.removeAccount(accounts[0]);
+    expect(await createApp().getTokenCache().getAllAccounts()).toEqual([]);
+    expect(JSON.parse(await fs.readFile(store.cachePath(profile), "utf8")).Account).toEqual({});
+  });
+
   it("isolates concurrent cache reads and writes, including accounts with the same home ID", async () => {
     const a = tenantProfile();
     const b = tenantProfile(TENANT_B);
