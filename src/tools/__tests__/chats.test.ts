@@ -144,7 +144,9 @@ describe("Chat Tools", () => {
 
       const result = await listChatsHandler();
 
-      expect(mockClient.api).toHaveBeenCalledWith("/me/chats?$expand=members");
+      expect(mockClient.api).toHaveBeenCalledWith(
+        "/me/chats?$expand=members,lastMessagePreview&$top=50"
+      );
       expect(result.content[0].type).toBe("text");
 
       const parsedText = JSON.parse(result.content[0].text);
@@ -154,13 +156,143 @@ describe("Chat Tools", () => {
         topic: "Test Chat 1",
         chatType: "group",
         members: "user1, user2",
+        isUnread: null,
+        isHidden: null,
+        lastMessageReadDateTime: null,
+        lastMessagePreview: null,
       });
       expect(parsedText[1]).toEqual({
         id: "chat2",
         topic: "No topic",
         chatType: "oneOnOne",
         members: "user1",
+        isUnread: null,
+        isHidden: null,
+        lastMessageReadDateTime: null,
+        lastMessagePreview: null,
       });
+    });
+
+    it("finds unread chats on later pages and retains hidden chats and preview content", async () => {
+      const nextLink = "https://graph.microsoft.com/v1.0/me/chats?$skiptoken=next";
+      const get = vi
+        .fn()
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: "read",
+              viewpoint: { lastMessageReadDateTime: "2026-09-23T10:00:00Z" },
+              lastMessagePreview: { createdDateTime: "2026-09-23T10:00:00Z" },
+            },
+          ],
+          "@odata.nextLink": nextLink,
+        })
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: "unread",
+              chatType: "meeting",
+              viewpoint: { isHidden: true, lastMessageReadDateTime: "2026-09-23T09:59:59Z" },
+              lastMessagePreview: {
+                id: "message1",
+                createdDateTime: "2026-09-23T10:00:00Z",
+                body: { contentType: "html", content: "<p>Hello <strong>team</strong></p>" },
+                from: { user: { displayName: "Alice" } },
+              },
+            },
+          ],
+        });
+      mockClient.api = vi.fn().mockReturnValue({ get });
+
+      const result = await listChatsHandler({ tenantId: "selected-tenant", unreadOnly: true });
+
+      expect(mockGraphService.forTenant).toHaveBeenCalledWith("selected-tenant");
+      expect(mockClient.api).toHaveBeenNthCalledWith(2, nextLink);
+      expect(JSON.parse(result.content[0].text)).toEqual([
+        expect.objectContaining({
+          id: "unread",
+          chatType: "meeting",
+          isUnread: true,
+          isHidden: true,
+          lastMessageReadDateTime: "2026-09-23T09:59:59Z",
+          lastMessagePreview: {
+            id: "message1",
+            createdDateTime: "2026-09-23T10:00:00Z",
+            content: "Hello **team**",
+            from: "Alice",
+          },
+        }),
+      ]);
+    });
+
+    it("compares instants and preserves unknown status rather than treating it as read", async () => {
+      const value = [
+        {
+          id: "equal",
+          viewpoint: { lastMessageReadDateTime: "2026-09-23T18:00:00+08:00" },
+          lastMessagePreview: { createdDateTime: "2026-09-23T10:00:00Z" },
+        },
+        {
+          id: "older",
+          viewpoint: { lastMessageReadDateTime: "2026-09-23T10:00:00Z" },
+          lastMessagePreview: { createdDateTime: "2026-09-23T09:00:00Z" },
+        },
+        {
+          id: "never-read",
+          viewpoint: { lastMessageReadDateTime: "0001-01-01T00:00:00Z" },
+          lastMessagePreview: { createdDateTime: "2026-09-23T10:00:00Z" },
+        },
+        { id: "no-viewpoint", lastMessagePreview: { createdDateTime: "2026-09-23T10:00:00Z" } },
+        { id: "no-preview", viewpoint: { lastMessageReadDateTime: "2026-09-23T10:00:00Z" } },
+        {
+          id: "bad-read-time",
+          viewpoint: { lastMessageReadDateTime: "invalid" },
+          lastMessagePreview: { createdDateTime: "2026-09-23T10:00:00Z" },
+        },
+        {
+          id: "bad-preview-time",
+          viewpoint: { lastMessageReadDateTime: "2026-09-23T10:00:00Z" },
+          lastMessagePreview: { createdDateTime: "invalid" },
+        },
+      ];
+      mockClient.api = vi.fn().mockReturnValue({ get: vi.fn().mockResolvedValue({ value }) });
+
+      const all = JSON.parse((await listChatsHandler()).content[0].text);
+      expect(all.map((chat: any) => [chat.id, chat.isUnread])).toEqual([
+        ["equal", false],
+        ["older", false],
+        ["never-read", true],
+        ["no-viewpoint", null],
+        ["no-preview", null],
+        ["bad-read-time", null],
+        ["bad-preview-time", null],
+      ]);
+      const unread = JSON.parse((await listChatsHandler({ unreadOnly: true })).content[0].text);
+      expect(unread.map((chat: any) => chat.id)).toEqual(["never-read"]);
+    });
+
+    it("reports unavailable read status when no unread chats can be confirmed", async () => {
+      mockClient.api = vi.fn().mockReturnValue({
+        get: vi.fn().mockResolvedValue({ value: [{ id: "unknown" }] }),
+      });
+      const result = await listChatsHandler({ unreadOnly: true });
+      expect(result.content[0].text).toBe(
+        "No confirmed unread chats found. Read status unavailable for 1 chat(s)."
+      );
+    });
+
+    it("does not return a partial unread result when a later page fails", async () => {
+      const get = vi
+        .fn()
+        .mockResolvedValueOnce({
+          value: [],
+          "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/chats?$skiptoken=next",
+        })
+        .mockRejectedValueOnce(new Error("Page failed"));
+      mockClient.api = vi.fn().mockReturnValue({ get });
+      const result = await listChatsHandler({ unreadOnly: true });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBe("❌ Error: Page failed");
     });
 
     it("should handle no chats found", async () => {

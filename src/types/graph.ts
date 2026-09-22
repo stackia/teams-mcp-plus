@@ -85,6 +85,11 @@ export interface ChatSummary {
   topic?: NullableOption<string> | undefined;
   chatType?: ChatType | undefined;
   memberCount?: number | undefined;
+  members?: string | undefined;
+  isUnread?: boolean | null | undefined;
+  isHidden?: boolean | null | undefined;
+  lastMessageReadDateTime?: string | null | undefined;
+  lastMessagePreview?: MessageSummary | null | undefined;
 }
 
 export interface AttachmentSummary {

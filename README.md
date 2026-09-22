@@ -460,13 +460,35 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 - `send_file_to_channel` - Upload a local file and send it as a message to a channel
 
 #### Chat Operations
-- `list_chats` - List user's chats (1:1 and group)
+- `list_chats` - List all user's chats (1:1, group, and meeting), with read status and latest-message previews; use `unreadOnly: true` to filter unread chats
 - `get_chat_messages` - Retrieve messages from a specific chat with pagination, filters, ordering, and `fetchAll`
 - `send_chat_message` - Send a message to a chat
 - `create_chat` - Create a new 1:1 or group chat
 - `update_chat_message` - Edit a previously sent chat message
 - `delete_chat_message` - Soft delete a chat message
 - `send_file_to_chat` - Upload a local file and send it as a message to a chat
+
+To find unread chats, call `list_chats` with:
+
+```json
+{
+  "tenantId": "<tenant-id from list_tenants>",
+  "unreadOnly": true
+}
+```
+
+The tool follows all chat pages and compares `lastMessagePreview.createdDateTime` with
+`viewpoint.lastMessageReadDateTime`, as described in the
+[Microsoft Graph documentation](https://learn.microsoft.com/en-us/graph/api/chat-list?view=graph-rest-1.0#example-4-list-chats-along-with-the-preview-of-the-last-message-sent-in-the-chat).
+It does not use the Search API's `IsRead` filter. Results retain the existing chat-list array
+format and include `isUnread`, `isHidden`, `lastMessageReadDateTime`, and `lastMessagePreview`
+(message ID, Markdown content, sender name, and creation time). Hidden chats are included.
+Missing or invalid timestamps produce `isUnread: null`; these chats are excluded when
+`unreadOnly` is true. If none match, the response notes any chats with unknown read status.
+Omit `unreadOnly` (or set it to false) to list all chats, including those with unknown status.
+This indicates messages after your read position, not other participants' Seen receipts.
+It covers chats, not channels, and does not change read state. To fetch the messages,
+use `get_chat_messages` with the returned chat ID and `since: lastMessageReadDateTime`.
 
 #### Media Operations
 - `download_message_hosted_content` - Download hosted content (images, files) from channel messages

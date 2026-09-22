@@ -46,8 +46,17 @@ export function registerChatTools(
     {
       title: "List Chats",
       description:
-        "List all recent chats (1:1 conversations and group chats) that the current user participates in. Returns chat topics, types, and participant information.",
-      inputSchema: { ...tenantInputSchema },
+        "List the current user's 1:1, group, and meeting chats, following all pages. Set unreadOnly to find chats whose latest message is newer than the current user's read position. Returns participants, a latest-message preview, and read status (null if unavailable). Includes hidden chats and identifies them with isHidden. Does not mark messages as read or include channels. Use get_chat_messages with the chat ID and lastMessageReadDateTime to retrieve messages after the read position.",
+      inputSchema: {
+        ...tenantInputSchema,
+        unreadOnly: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Only return chats with confirmed unread messages based on the current user's read position. Chats with unavailable read status are excluded."
+          ),
+      },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -55,38 +64,63 @@ export function registerChatTools(
         openWorldHint: false,
       },
     },
-    async ({ tenantId } = { tenantId: undefined }) => {
+    async ({ tenantId, unreadOnly = false } = { tenantId: undefined, unreadOnly: false }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
-        // Build query parameters
-        const queryParams: string[] = ["$expand=members"];
-
-        const queryString = queryParams.join("&");
-
         const client = await graphService.getClient();
-        const response = (await client
-          .api(`/me/chats?${queryString}`)
-          .get()) as GraphApiResponse<Chat>;
+        const chats: Chat[] = [];
+        let nextLink: string | undefined = "/me/chats?$expand=members,lastMessagePreview&$top=50";
+        while (nextLink) {
+          const response = (await client.api(nextLink).get()) as GraphApiResponse<Chat> | null;
+          chats.push(...(response?.value ?? []));
+          nextLink = response?.["@odata.nextLink"];
+        }
 
-        if (!response?.value?.length) {
+        const summaries: ChatSummary[] = chats.map((chat) => {
+          const preview = chat.lastMessagePreview;
+          const lastRead = chat.viewpoint?.lastMessageReadDateTime ?? null;
+          const readTime = Date.parse(lastRead ?? "");
+          const latestTime = Date.parse(preview?.createdDateTime ?? "");
+          return {
+            id: chat.id,
+            topic: chat.topic || "No topic",
+            chatType: chat.chatType,
+            members:
+              chat.members?.map((member: ConversationMember) => member.displayName).join(", ") ||
+              "No members",
+            isUnread:
+              Number.isFinite(readTime) && Number.isFinite(latestTime)
+                ? latestTime > readTime
+                : null,
+            isHidden: chat.viewpoint?.isHidden ?? null,
+            lastMessageReadDateTime: lastRead,
+            lastMessagePreview: preview
+              ? {
+                  id: preview.id,
+                  content: formatMessageContent(preview.body?.content, "markdown"),
+                  from: preview.from?.user?.displayName,
+                  createdDateTime: preview.createdDateTime,
+                }
+              : null,
+          };
+        });
+        const chatList = unreadOnly
+          ? summaries.filter((chat) => chat.isUnread === true)
+          : summaries;
+
+        if (!chatList.length) {
+          const unknownCount = summaries.filter((chat) => chat.isUnread === null).length;
           return {
             content: [
               {
                 type: "text",
-                text: "No chats found.",
+                text: unreadOnly
+                  ? `No confirmed unread chats found.${unknownCount ? ` Read status unavailable for ${unknownCount} chat(s).` : ""}`
+                  : "No chats found.",
               },
             ],
           };
         }
-
-        const chatList: ChatSummary[] = response.value.map((chat: Chat) => ({
-          id: chat.id,
-          topic: chat.topic || "No topic",
-          chatType: chat.chatType,
-          members:
-            chat.members?.map((member: ConversationMember) => member.displayName).join(", ") ||
-            "No members",
-        }));
 
         return {
           content: [
