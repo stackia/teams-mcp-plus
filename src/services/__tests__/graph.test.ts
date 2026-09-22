@@ -187,6 +187,8 @@ describe("multi-tenant Graph service", () => {
 
   it("keeps read-only scopes separate from full mode and respects per-tenant grants", async () => {
     const full = tenantProfile();
+    expect(FULL_SCOPES).toContain("ChatMessage.Send");
+    expect(READ_ONLY_SCOPES).not.toContain("ChatMessage.Send");
     full.scopes = FULL_SCOPES;
     await store.save(full, "cache");
     const ro = new GraphService({ store, readOnly: true });

@@ -691,12 +691,16 @@ export function registerChatTools(
     "send_chat_message",
     {
       title: "Send Chat Message",
-      description:
-        "Send a message to a specific chat conversation. Supports text and markdown formatting, mentions, and importance levels.",
+      description: "Send a chat message or quote and reply to an existing message.",
       inputSchema: {
         ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         message: z.string().describe("Message content"),
+        replyToMessageId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Message ID in this chat to quote and reply to."),
         importance: z.enum(["normal", "high", "urgent"]).optional().describe("Message importance"),
         format: z
           .enum(["text", "markdown"])
@@ -721,7 +725,15 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ tenantId, chatId, message, importance = "normal", format = "text", mentions }) => {
+    async ({
+      tenantId,
+      chatId,
+      message,
+      replyToMessageId,
+      importance = "normal",
+      format = "text",
+      mentions,
+    }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
@@ -795,9 +807,13 @@ export function registerChatTools(
           messagePayload.mentions = finalMentions;
         }
 
-        const result = (await client
-          .api(`/me/chats/${chatId}/messages`)
-          .post(messagePayload)) as ChatMessage;
+        const endpoint = replyToMessageId
+          ? `/chats/${encodeURIComponent(chatId)}/messages/replyWithQuote`
+          : `/me/chats/${encodeURIComponent(chatId)}/messages`;
+        const payload = replyToMessageId
+          ? { messageIds: [replyToMessageId], replyMessage: messagePayload }
+          : messagePayload;
+        const result = (await client.api(endpoint).post(payload)) as ChatMessage;
 
         // Build success message
         const successText = `✅ Message sent successfully. Message ID: ${result.id}${
@@ -815,11 +831,15 @@ export function registerChatTools(
           ],
         };
       } catch (error: any) {
+        const permissionHint =
+          replyToMessageId && error.statusCode === 403
+            ? " Quoted replies require ChatMessage.Send; re-authenticate this tenant in full mode if it is missing."
+            : "";
         return {
           content: [
             {
               type: "text" as const,
-              text: `❌ Failed to send message: ${error.message}`,
+              text: `❌ Failed to send message: ${error.message}${permissionHint}`,
             },
           ],
           isError: true,

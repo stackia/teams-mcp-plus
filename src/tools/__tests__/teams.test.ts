@@ -71,11 +71,11 @@ describe("Teams Tools", () => {
       expect(registeredTools).not.toContain("send_file_to_channel");
     });
 
-    it("should register all 14 tools when readOnly is false", () => {
+    it("should register all 13 tools when readOnly is false", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
 
       const registeredTools = mockServer.getAllTools();
-      expect(registeredTools).toHaveLength(14);
+      expect(registeredTools).toHaveLength(13);
     });
   });
 
@@ -591,11 +591,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue(sentReply);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "message-id",
+        replyToMessageId: "message-id",
         message: "**Bold** reply",
         format: "markdown",
       });
@@ -677,15 +677,16 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("reply_to_channel_message tool", () => {
-    it("should register reply_to_channel_message tool with correct schema", () => {
+  describe("send_channel_message thread replies", () => {
+    it("should register send_channel_message thread replies with correct schema", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       expect(tool).toBeDefined();
+      expect(mockServer.getTool("reply_to_channel_message")).toBeUndefined();
       expect(tool.schema.teamId).toBeDefined();
       expect(tool.schema.channelId).toBeDefined();
-      expect(tool.schema.messageId).toBeDefined();
+      expect(tool.schema.replyToMessageId).toBeDefined();
       expect(tool.schema.message).toBeDefined();
       expect(tool.schema.importance).toBeDefined();
     });
@@ -694,11 +695,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue({ id: "reply-123" });
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "test-message-id",
+        replyToMessageId: "test-message-id",
         message: "This is a reply",
       });
 
@@ -719,11 +720,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue({ id: "reply-456" });
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const _result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "test-message-id",
+        replyToMessageId: "test-message-id",
         message: "Urgent reply!",
         importance: "urgent",
       });
@@ -741,11 +742,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockRejectedValue(new Error("Reply failed"));
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "test-message-id",
+        replyToMessageId: "test-message-id",
         message: "Test reply",
       });
 
@@ -756,11 +757,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue({ id: "reply-md" });
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "test-message-id",
+        replyToMessageId: "test-message-id",
         message: "**Reply** _Markdown_",
         format: "markdown",
       });
@@ -779,11 +780,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue(sentReply);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "message-id",
+        replyToMessageId: "message-id",
         message: "Plain text reply",
       });
 
@@ -800,11 +801,11 @@ describe("Teams Tools", () => {
       mockClient.api().post.mockResolvedValue({ id: "reply-fallback" });
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "test-message-id",
+        replyToMessageId: "test-message-id",
         message: "Fallback reply",
         format: "invalid-format",
       });
@@ -831,11 +832,11 @@ describe("Teams Tools", () => {
 
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "parent-message-id",
+        replyToMessageId: "parent-message-id",
         message: "Thanks @user!",
         format: "text",
         mentions: [{ mention: "@user", userId: "user-123" }],
@@ -862,11 +863,11 @@ describe("Teams Tools", () => {
 
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "parent-message-id",
+        replyToMessageId: "parent-message-id",
         message: "See attached",
         format: "text",
         imageUrl: "https://example.com/reply-image.jpg",
@@ -883,11 +884,11 @@ describe("Teams Tools", () => {
 
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("reply_to_channel_message");
+      const tool = mockServer.getTool("send_channel_message");
       const result = await tool.handler({
         teamId: "test-team-id",
         channelId: "test-channel-id",
-        messageId: "parent-message-id",
+        replyToMessageId: "parent-message-id",
         message: "Failed image",
         format: "text",
         imageUrl: "https://example.com/broken.jpg",

@@ -57,7 +57,8 @@ describe("MCP tenant routing", () => {
     await client.connect(clientTransport);
     try {
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(33);
+      expect(tools).toHaveLength(32);
+      expect(tools.some((tool) => tool.name === "reply_to_channel_message")).toBe(false);
       for (const tool of tools.filter((t) => t.name !== "list_tenants")) {
         expect(tool.inputSchema.properties).toHaveProperty("tenantId");
         expect(tool.inputSchema.required ?? []).not.toContain("tenantId");
@@ -81,12 +82,99 @@ describe("MCP tenant routing", () => {
       });
       expect(clients.get(TENANT_B).api).toHaveBeenCalledWith("/me/chats/chat-b/messages");
       expect(clients.get(TENANT_A).api).not.toHaveBeenCalledWith("/me/chats/chat-b/messages");
+
+      const quote = await client.callTool({
+        name: "send_chat_message",
+        arguments: {
+          tenantId: TENANT_B,
+          chatId: "chat/b",
+          replyToMessageId: "original-message",
+          message: "**Quoted reply**",
+          format: "markdown",
+          importance: "high",
+        },
+      });
+      expect(quote.isError).toBeFalsy();
+      expect(clients.get(TENANT_B).api).toHaveBeenLastCalledWith(
+        "/chats/chat%2Fb/messages/replyWithQuote"
+      );
+      expect(clients.get(TENANT_B).api.mock.results.at(-1).value.post).toHaveBeenLastCalledWith({
+        messageIds: ["original-message"],
+        replyMessage: {
+          body: {
+            content: expect.stringContaining("<strong>Quoted reply</strong>"),
+            contentType: "html",
+          },
+          importance: "high",
+        },
+      });
+
+      await client.callTool({
+        name: "send_channel_message",
+        arguments: {
+          tenantId: TENANT_A,
+          teamId: "team-a",
+          channelId: "channel-a",
+          replyToMessageId: "root/a",
+          message: "Thread reply",
+        },
+      });
+      expect(clients.get(TENANT_A).api).toHaveBeenLastCalledWith(
+        "/teams/team-a/channels/channel-a/messages/root%2Fa/replies"
+      );
+      expect(clients.get(TENANT_B).api).not.toHaveBeenCalledWith(
+        "/teams/team-a/channels/channel-a/messages/root%2Fa/replies"
+      );
+
+      for (const name of ["send_chat_message", "send_channel_message"]) {
+        const invalidReply = await client.callTool({
+          name,
+          arguments: {
+            tenantId: TENANT_B,
+            chatId: "chat",
+            teamId: "team",
+            channelId: "channel",
+            replyToMessageId: "",
+            message: "test",
+          },
+        });
+        expect(invalidReply.isError).toBe(true);
+      }
       expect(root.getClient).not.toHaveBeenCalled();
     } finally {
       await client.close();
       await server.close();
     }
   });
+
+  it.each([403, 404, 500])(
+    "does not fall back to an unquoted message after a quote error (%s)",
+    async (statusCode) => {
+      const { root, clients } = services();
+      const server = createMockMcpServer();
+      registerChatTools(server as any, root, false);
+      const request = clients.get(TENANT_B).api().post;
+      request.mockRejectedValue(Object.assign(new Error("Graph rejected reply"), { statusCode }));
+      clients.get(TENANT_B).api.mockClear();
+      const result = await server.getTool("send_chat_message").handler({
+        tenantId: TENANT_B,
+        chatId: "chat-b",
+        replyToMessageId: "original",
+        message: "Reply",
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Graph rejected reply");
+      expect(result.content[0].text.includes("ChatMessage.Send")).toBe(statusCode === 403);
+      expect(clients.get(TENANT_B).api).toHaveBeenCalledExactlyOnceWith(
+        "/chats/chat-b/messages/replyWithQuote"
+      );
+      expect(request).toHaveBeenCalledExactlyOnceWith({
+        messageIds: ["original"],
+        replyMessage: { body: { content: "Reply", contentType: "text" }, importance: "normal" },
+      });
+      expect(clients.get(TENANT_A).api).not.toHaveBeenCalled();
+    }
+  );
 
   it("every tenant-scoped handler resolves the requested tenant before doing work", async () => {
     const server = createMockMcpServer();

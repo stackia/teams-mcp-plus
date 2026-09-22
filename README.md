@@ -108,7 +108,6 @@ Then add the following configuration in Cursor/Claude/VS Code:
 The following tools support rich message formatting in Teams channels and chats:
 - `send_channel_message`
 - `send_chat_message`
-- `reply_to_channel_message`
 - `update_channel_message`
 - `update_chat_message`
 - `send_file_to_channel`
@@ -253,6 +252,7 @@ npm run auth -- --tenant <tenant-id>
 - `ChannelMessage.ReadWrite` - Edit and delete channel messages
 - `Chat.Read` - Read chat messages (included via read-only scopes)
 - `Chat.ReadWrite` - Create and manage chats, send/edit/delete chat messages (supersedes `Chat.Read`)
+- `ChatMessage.Send` - Send quoted chat replies
 - `TeamMember.Read.All` - Read team members
 - `Files.ReadWrite.All` - Required for file uploads to channels and chats
 
@@ -432,8 +432,8 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 **Read-only tools (18):**
 `list_tenants`, `auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `list_chat_members`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
 
-**Write tools disabled in read-only mode (15):**
-`set_chat_read_state`, `send_channel_message`, `reply_to_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
+**Write tools disabled in read-only mode (14):**
+`set_chat_read_state`, `send_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
 
 ### Available MCP Tools
 
@@ -451,8 +451,7 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 - `list_channels` - List channels in a specific team
 - `get_channel_messages` - List thread roots, or pass `messageId` to read one root; add `replyId` to read a reply within that thread
 - `get_channel_message_replies` - List replies within the thread identified by its root `messageId`
-- `send_channel_message` - Start a new channel thread by posting its root message
-- `reply_to_channel_message` - Post a reply in the existing thread identified by its root `messageId`
+- `send_channel_message` - Start a new thread, or pass `replyToMessageId` (the thread root ID) to reply within an existing thread
 - `update_channel_message` - Edit a previously sent channel message or reply
 - `delete_channel_message` - Soft delete a channel message or reply
 - `list_team_members` - List members of a specific team
@@ -461,8 +460,8 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 
 A channel thread consists of a root message and its replies. For channel tools,
 `messageId` identifies the root message; `replyId`, where supported, identifies an
-individual reply within that thread. `reply_to_channel_message` appends to the thread
-and does not select an individual reply to quote. These correspond to Graph's
+individual reply within that thread. `send_channel_message.replyToMessageId` selects
+the thread root and appends a reply to that thread. These correspond to Graph's
 [new message](https://learn.microsoft.com/en-us/graph/api/chatmessage-post?view=graph-rest-1.0)
 and [thread reply](https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0) endpoints.
 
@@ -471,11 +470,35 @@ and [thread reply](https://learn.microsoft.com/en-us/graph/api/chatmessage-post-
 - `get_chat_messages` - List chat messages with pagination and filters, or pass `messageId` to read one
 - `list_chat_members` - List all chat members with membership IDs, user IDs, names, emails, tenant IDs, roles, and visible history start times
 - `set_chat_read_state` - Mark a chat read (`isRead: true`) or unread (`isRead: false`) for the current user
-- `send_chat_message` - Send a message to a chat
+- `send_chat_message` - Send a chat message, or pass `replyToMessageId` to quote and reply to a message in that chat
 - `create_chat` - Create a new 1:1 or group chat
 - `update_chat_message` - Edit a previously sent chat message
 - `delete_chat_message` - Soft delete a chat message
 - `send_file_to_chat` - Upload a local file and send it as a message to a chat
+
+Both send tools accept one optional `replyToMessageId`:
+
+| Tool | Omitted | Provided |
+| --- | --- | --- |
+| `send_channel_message` | Start a new thread | Reply in the thread whose root has this ID |
+| `send_chat_message` | Send an ordinary chat message | Quote and reply to the message with this ID |
+
+`reply_to_channel_message` has been removed. Migrate calls to `send_channel_message`
+and rename the old `messageId` argument to `replyToMessageId`. Text/Markdown, mentions,
+importance, and channel image options are preserved.
+
+Chat quoted replies use Graph v1.0
+[`replyWithQuote`](https://learn.microsoft.com/en-us/graph/api/chatmessage-replywithquote?view=graph-rest-1.0).
+They require delegated `ChatMessage.Send`, now included in full-mode authentication.
+Existing connections without that scope must authenticate again using the updated build:
+
+```bash
+node dist/index.js authenticate --tenant <tenant-id>
+```
+
+For `AUTH_TOKEN`, supply a token that includes `ChatMessage.Send`. Ordinary sends remain
+available with their existing permissions. A failed quoted reply returns an error without
+falling back to an ordinary message.
 
 To find unread chats, call `list_chats` with:
 

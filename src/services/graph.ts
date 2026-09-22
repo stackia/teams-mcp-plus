@@ -27,6 +27,7 @@ export const FULL_SCOPES = [
   "ChannelMessage.Send",
   "ChannelMessage.ReadWrite",
   "Chat.ReadWrite",
+  "ChatMessage.Send",
   "Files.ReadWrite.All",
 ];
 
