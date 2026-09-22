@@ -1,6 +1,6 @@
 {
   "name": "teams-mcp-plus",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Microsoft Teams MCP server with isolated multi-tenant authentication and Microsoft Graph integration",
   "type": "module",
   "main": "dist/index.js",
