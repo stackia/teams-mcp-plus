@@ -449,15 +449,22 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 #### Teams Operations
 - `list_teams` - List user's joined teams
 - `list_channels` - List channels in a specific team
-- `get_channel_messages` - List channel messages, or pass `messageId` to read one; add `replyId` to read a specific reply
-- `get_channel_message_replies` - Get replies to a specific channel message
-- `send_channel_message` - Send a message to a team channel with optional mentions, importance, and image attachments
-- `reply_to_channel_message` - Reply to an existing channel message
+- `get_channel_messages` - List thread roots, or pass `messageId` to read one root; add `replyId` to read a reply within that thread
+- `get_channel_message_replies` - List replies within the thread identified by its root `messageId`
+- `send_channel_message` - Start a new channel thread by posting its root message
+- `reply_to_channel_message` - Post a reply in the existing thread identified by its root `messageId`
 - `update_channel_message` - Edit a previously sent channel message or reply
 - `delete_channel_message` - Soft delete a channel message or reply
 - `list_team_members` - List members of a specific team
 - `search_users_for_mentions` - Search for team members to @mention in messages
-- `send_file_to_channel` - Upload a local file and send it as a message to a channel
+- `send_file_to_channel` - Post a file in a new thread, or pass the root `messageId` to reply in an existing thread
+
+A channel thread consists of a root message and its replies. For channel tools,
+`messageId` identifies the root message; `replyId`, where supported, identifies an
+individual reply within that thread. `reply_to_channel_message` appends to the thread
+and does not select an individual reply to quote. These correspond to Graph's
+[new message](https://learn.microsoft.com/en-us/graph/api/chatmessage-post?view=graph-rest-1.0)
+and [thread reply](https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0) endpoints.
 
 #### Chat Operations
 - `list_chats` - List all user's chats (1:1, group, and meeting), with read status and latest-message previews; use `unreadOnly: true` to filter unread chats

@@ -183,17 +183,21 @@ export function registerTeamsTools(
     "get_channel_messages",
     {
       title: "Get Channel Messages",
-      description: "List channel messages or read one message or reply by ID.",
+      description: "List channel thread roots, or read one root or reply by ID.",
       inputSchema: {
         ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
-        messageId: z.string().min(1).optional().describe("Read one message; ignores limit."),
+        messageId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Read this thread root message; ignores limit."),
         replyId: z
           .string()
           .min(1)
           .optional()
-          .describe("Read this reply; requires its parent messageId."),
+          .describe("Read this reply within the thread identified by messageId."),
         limit: z
           .number()
           .min(1)
@@ -311,9 +315,8 @@ export function registerTeamsTools(
     server.registerTool(
       "send_channel_message",
       {
-        title: "Send Channel Message",
-        description:
-          "Send a message to a specific channel in a Microsoft Team. Supports text and markdown formatting, mentions, and importance levels.",
+        title: "Start Channel Thread",
+        description: "Start a new channel thread by posting its root message.",
         inputSchema: {
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
@@ -541,13 +544,12 @@ export function registerTeamsTools(
     "get_channel_message_replies",
     {
       title: "Get Channel Message Replies",
-      description:
-        "Get all replies to a specific message in a channel. Returns reply content, sender information, and timestamps.",
+      description: "List replies within a channel thread.",
       inputSchema: {
         ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
-        messageId: z.string().describe("Message ID to get replies for"),
+        messageId: z.string().describe("Thread root message ID"),
         limit: z
           .number()
           .min(1)
@@ -661,14 +663,13 @@ export function registerTeamsTools(
     server.registerTool(
       "reply_to_channel_message",
       {
-        title: "Reply to Channel Message",
-        description:
-          "Reply to a specific message in a channel. Supports text and markdown formatting, mentions, and importance levels.",
+        title: "Reply to Channel Thread",
+        description: "Post a reply in an existing channel thread.",
         inputSchema: {
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Message ID to reply to"),
+          messageId: z.string().describe("Thread root message ID"),
           message: z.string().describe("Reply content"),
           importance: z
             .enum(["normal", "high", "urgent"])
@@ -1044,11 +1045,11 @@ export function registerTeamsTools(
         ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
-        messageId: z.string().describe("Message ID containing the hosted content"),
+        messageId: z.string().describe("Thread root message ID"),
         replyId: z
           .string()
           .optional()
-          .describe("Reply ID if downloading hosted content from a reply to a message (optional)"),
+          .describe("Reply ID within the thread. Omit to download from the root message."),
         hostedContentId: z
           .string()
           .optional()
@@ -1283,11 +1284,11 @@ export function registerTeamsTools(
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Message ID to delete"),
+          messageId: z.string().describe("Thread root message ID"),
           replyId: z
             .string()
             .optional()
-            .describe("Reply ID if deleting a reply to a message (optional)"),
+            .describe("Reply ID within the thread. Omit to delete the root message."),
         },
         annotations: {
           readOnlyHint: false,
@@ -1346,11 +1347,11 @@ export function registerTeamsTools(
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Message ID to update"),
+          messageId: z.string().describe("Thread root message ID"),
           replyId: z
             .string()
             .optional()
-            .describe("Reply ID if updating a reply to a message (optional)"),
+            .describe("Reply ID within the thread. Omit to update the root message."),
           message: z.string().describe("New message content"),
           importance: z
             .enum(["normal", "high", "urgent"])
@@ -1510,13 +1511,16 @@ export function registerTeamsTools(
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Message ID to react to"),
+          messageId: z.string().describe("Thread root message ID"),
           reactionType: z
             .string()
             .describe(
               'Reaction type - Unicode emoji (e.g., "👍") or named reaction (e.g., "like", "heart")'
             ),
-          replyId: z.string().optional().describe("Reply ID if reacting to a reply (optional)"),
+          replyId: z
+            .string()
+            .optional()
+            .describe("Reply ID within the thread. Omit to react to the root message."),
         },
         annotations: {
           readOnlyHint: false,
@@ -1574,7 +1578,7 @@ export function registerTeamsTools(
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Message ID to remove reaction from"),
+          messageId: z.string().describe("Thread root message ID"),
           reactionType: z
             .string()
             .describe(
@@ -1583,7 +1587,9 @@ export function registerTeamsTools(
           replyId: z
             .string()
             .optional()
-            .describe("Reply ID if removing reaction from a reply (optional)"),
+            .describe(
+              "Reply ID within the thread. Omit to remove the reaction from the root message."
+            ),
         },
         annotations: {
           readOnlyHint: false,
@@ -1636,7 +1642,7 @@ export function registerTeamsTools(
       {
         title: "Send File to Channel",
         description:
-          "Upload a local file and send it as a message to a Teams channel. Supports any file type (PDF, DOCX, ZIP, images, etc.). The file is uploaded to the channel's SharePoint folder and sent as a reference attachment. If messageId is provided, the file is sent as a reply to that message (thread).",
+          "Upload a local file to SharePoint and post it in a new or existing channel thread.",
         inputSchema: {
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
@@ -1658,9 +1664,7 @@ export function registerTeamsTools(
           messageId: z
             .string()
             .optional()
-            .describe(
-              "Optional message ID to reply to. When provided, the file is sent as a reply in the message thread instead of a new message."
-            ),
+            .describe("Thread root message ID. Omit to start a new thread."),
         },
         annotations: {
           readOnlyHint: false,
