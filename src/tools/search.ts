@@ -49,7 +49,17 @@ export function registerSearchTools(
           .trim()
           .min(1)
           .optional()
-          .describe("KQL query; optional with mentionsMe or hours."),
+          .describe(
+            [
+              "KQL query; optional with mentionsMe or hours. Examples:",
+              '"quarterly report" from:alice sent>=2026-01-01',
+              "hasAttachment:true from:bob",
+              "project update sent>=2026-02-01 sent<=2026-02-28",
+              "IsMentioned:true",
+              "mentions:497b7a2a9e1a48d780e82965d2fc3a81 (user ID without hyphens)",
+              "(budget OR forecast) AND from:alice",
+            ].join("\n")
+          ),
         mentionsMe: z
           .boolean()
           .optional()
