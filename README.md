@@ -33,75 +33,53 @@ Then add the following configuration in Cursor/Claude/VS Code:
 
 ## 🚀 Features
 
-### 🔐 Authentication
-- Multiple tenants in one server, with isolated credentials and per-call `tenantId` selection
-- OAuth 2.0 device code authentication flow with Microsoft Graph
-- Secure token management, cache persistence, and refresh token renewal
-- Authentication status checking and logout support
-- Read-only mode with reduced scopes
-- Direct `AUTH_TOKEN` support for pre-issued Microsoft Graph access tokens
+### 🔐 Authentication & Multiple Tenants
 
-### 👥 User Management
-- Get current user information
-- Search users by name or email
-- Retrieve detailed user profiles
-- Access organizational directory data
+- Connect multiple organizations with isolated credentials and explicit tenant selection per call
+- Authenticate through Microsoft Graph OAuth device login, with persistent token caching and automatic refresh
+- List connected tenants, check live authentication, and log out through the CLI
+- Run in read-only mode with reduced permissions, or supply an existing Graph access token
 
-### 🏢 Microsoft Teams Integration
-- **Teams Management**
-  - List user's joined teams
-  - Access team details and metadata
+### 👥 Users, Teams & Members
 
-- **Channel Operations**
-  - List channels within teams
-  - Retrieve channel messages and replies
-  - Send messages to team channels
-  - Reply to existing channel threads
-  - Edit and soft delete channel messages and replies
-  - Support for message importance levels (`normal`, `high`, `urgent`)
-  - Support for inline image attachments via URL or base64 data
+- Look up the current user or another user's profile
+- Search users by name or email, including IDs and display text for `@mentions`
+- List joined teams, their channels, and team members with roles
+- Read chat member details, including user IDs, emails, tenant IDs, roles, and visible history start times
 
-- **Team Members**
-  - List team members and their roles
-  - Access member information
-  - Search users for `@mentions`
+### 💬 Chats & Read Status
 
-### 💬 Chat & Messaging
-- **1:1 and Group Chats**
-  - List user's chats
-  - Create new 1:1 or group conversations
-  - Retrieve chat message history with filtering, ordering, and pagination
-  - Fetch all available messages via `@odata.nextLink` pagination
-  - Send messages to existing chats
-  - Edit previously sent chat messages
-  - Soft delete chat messages
+- List 1:1, group, and meeting chats with participants and latest-message previews, newest message first
+- Find unread chats based on the current user's read position
+- Mark chats read or unread for the current user
+- Create 1:1 and group chats, with optional group topics
+- Read chat history with time filters, ordering, pagination, and automatic retrieval of all available pages
+- Read an individual chat message by ID
 
-### ✏️ Message Management
-- **Edit & Delete**
-  - Update (edit) sent messages in chats and channels
-  - Soft delete messages in chats and channels (marks as deleted without permanent removal)
-  - Only message senders can update/delete their own messages
-  - Support for Markdown formatting, mentions, and importance levels on edits
+### 🧵 Channel Threads & Messaging
 
-### 📎 Media & Attachments
-- **Hosted Content**
-  - Download hosted content (images, files) from chat and channel messages
-  - Access inline images and attachments shared in conversations
-  - Optionally save hosted content directly to disk
+- List channel thread roots and thread replies, or read an individual root message or reply
+- Start a new channel thread or reply within an existing thread
+- Send chat messages or quote and reply to an existing chat message
+- Edit or soft delete your own chat messages, channel messages, and channel replies
+- Add or remove emoji reactions on chat messages, channel messages, and channel replies
+- Compose messages with plain text or sanitized Markdown, `@mentions`, and importance levels
+- Read message bodies as Markdown by default, or retain the original HTML
 
-- **File Upload**
-  - Upload and send any file type (PDF, DOCX, XLSX, ZIP, images, etc.) to channels and chats
-  - Large file support (>4 MB) via resumable upload sessions
-  - Channel uploads go to SharePoint and chat uploads go to OneDrive
-  - Optional message text, custom filename, formatting, and importance levels
+### 📎 Files & Inline Content
 
-### 🔍 Advanced Search & Discovery
-- **Message Search**
-  - Search across all Teams channels and chats using Microsoft Search API
-  - Support for KQL (Keyword Query Language) syntax
-  - Filter by sender, mentions, attachments, read state, and date ranges
-  - Get recent messages with advanced filtering options
-  - Find messages mentioning the current user
+- Upload local files to chats through OneDrive or to channel threads through SharePoint
+- Post channel files in a new thread or as a reply in an existing thread
+- Upload large files through resumable upload sessions
+- Include inline images in channel messages from a URL or base64 data
+- Download hosted content from chat messages, channel messages, and channel replies as base64 or save it to disk
+
+### 🔍 Message Search
+
+- Search accessible chat and channel messages within a tenant using Microsoft Search and KQL
+- Combine keywords, phrases, Boolean operators, sender, attachment, mention, and date filters
+- Find messages mentioning the current user, with an optional recent-hours window
+- Retrieve paginated results with optional relevance ranking and Markdown or raw message bodies
 
 ## Rich Message Formatting Support
 
@@ -396,7 +374,7 @@ npx teams-mcp-plus@latest                           # Start MCP server (default)
 
 ### Read-Only Mode
 
-The server supports a read-only mode that disables all write operations (sending messages, creating chats, uploading files, editing/deleting messages) and requests only read-permission scopes from Microsoft Graph.
+The server supports a read-only mode that disables all write tools, including sending or changing messages, reactions, chat read state, chat creation, and file uploads. Authentication in this mode requests only read-permission scopes from Microsoft Graph.
 
 **Enable read-only mode** using either:
 - Environment variable: `TEAMS_MCP_READ_ONLY=true`
@@ -427,161 +405,73 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 ```
 
-**Read-only tools (14):**
-`list_tenants`, `auth_status`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `list_team_members`, `download_message_hosted_content`, `list_chats`, `list_chat_members`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`
-
-**Write tools disabled in read-only mode (12):**
-`set_chat_read_state`, `send_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `set_chat_message_reaction`
-
 ### Available MCP Tools
 
-#### Authentication
-- `list_tenants` - List tenant IDs, labels, account names, scopes, and the configured default (no token refresh)
-- `auth_status` - Check current authentication status
+Full mode exposes **26 tools: 14 read tools and 12 write tools**. Read-only mode exposes only
+those marked **Read** below. Tool schemas provide parameter details.
 
-#### User Operations
-- `search_users` - Search tenant users by name or email, returning IDs, email addresses and `mentionText`; `limit` defaults to 10 (max 50)
-- `get_user` - Get a user by ID or UPN; omit `userId` for the current user
+#### Authentication & Tenants
 
-#### Teams Operations
-- `list_teams` - List user's joined teams
-- `list_channels` - List channels in a specific team
-- `get_channel_messages` - List thread roots, read a root with `messageId`, read a reply with `replyId`, or list thread replies with `messageId` and `listReplies: true`
-- `send_channel_message` - Start a new thread, or pass `replyToMessageId` (the thread root ID) to reply within an existing thread
-- `update_channel_message` - Edit a previously sent channel message or reply
-- `delete_channel_message` - Soft delete a channel message or reply
-- `list_team_members` - List members of a specific team
-- `send_file_to_channel` - Post a file in a new thread, or pass the root `messageId` to reply in an existing thread
-
-A channel thread consists of a root message and its replies. For channel tools,
-`messageId` identifies the root message; `replyId`, where supported, identifies an
-individual reply within that thread. `send_channel_message.replyToMessageId` selects
-the thread root and appends a reply to that thread. These correspond to Graph's
-[new message](https://learn.microsoft.com/en-us/graph/api/chatmessage-post?view=graph-rest-1.0)
-and [thread reply](https://learn.microsoft.com/en-us/graph/api/chatmessage-post-replies?view=graph-rest-1.0) endpoints.
-
-#### Chat Operations
-- `list_chats` - List all user's chats (1:1, group, and meeting), with read status and latest-message previews; use `unreadOnly: true` to filter unread chats
-- `get_chat_messages` - List chat messages with pagination and filters, or pass `messageId` to read one
-- `list_chat_members` - List all chat members with membership IDs, user IDs, names, emails, tenant IDs, roles, and visible history start times
-- `set_chat_read_state` - Mark a chat read (`isRead: true`) or unread (`isRead: false`) for the current user
-- `send_chat_message` - Send a chat message, or pass `replyToMessageId` to quote and reply to a message in that chat
-- `create_chat` - Create a new 1:1 or group chat
-- `update_chat_message` - Edit a previously sent chat message
-- `delete_chat_message` - Soft delete a chat message
-- `send_file_to_chat` - Upload a local file and send it as a message to a chat
-
-Both send tools accept one optional `replyToMessageId`:
-
-| Tool | Omitted | Provided |
+| Tool | Access | Function |
 | --- | --- | --- |
-| `send_channel_message` | Start a new thread | Reply in the thread whose root has this ID |
-| `send_chat_message` | Send an ordinary chat message | Quote and reply to the message with this ID |
+| `list_tenants` | Read | List connected tenants, accounts, granted scopes, and the configured default. |
+| `auth_status` | Read | Check live authentication and the signed-in user for a tenant. |
 
-`reply_to_channel_message` has been removed. Migrate calls to `send_channel_message`
-and rename the old `messageId` argument to `replyToMessageId`. Text/Markdown, mentions,
-importance, and channel image options are preserved.
+#### Users & Membership
 
-Chat quoted replies use Graph v1.0
-[`replyWithQuote`](https://learn.microsoft.com/en-us/graph/api/chatmessage-replywithquote?view=graph-rest-1.0).
-They require delegated `ChatMessage.Send`, now included in full-mode authentication.
-Existing connections without that scope must authenticate again using the updated build:
+| Tool | Access | Function |
+| --- | --- | --- |
+| `get_user` | Read | Retrieve the current user's profile or look up another user. |
+| `search_users` | Read | Search users by name or email, including IDs and mention text. |
+| `list_team_members` | Read | List a team's members and their roles. |
+| `list_chat_members` | Read | List chat members with user and tenant IDs, emails, roles, and visible history start times. |
 
-```bash
-node dist/index.js authenticate --tenant <tenant-id>
-```
+#### Chats
 
-For `AUTH_TOKEN`, supply a token that includes `ChatMessage.Send`. Ordinary sends remain
-available with their existing permissions. A failed quoted reply returns an error without
-falling back to an ordinary message.
+| Tool | Access | Function |
+| --- | --- | --- |
+| `list_chats` | Read | List chats with participants, latest-message previews, and read status; optionally return only unread chats. |
+| `get_chat_messages` | Read | Retrieve chat history with filtering, ordering, and pagination, or read a single message. |
+| `create_chat` | Write | Create a 1:1 or group chat. |
+| `set_chat_read_state` | Write | Mark a chat read or unread for the current user. |
+| `send_chat_message` | Write | Send a chat message or quote and reply to an existing message. |
+| `update_chat_message` | Write | Edit a chat message you sent. |
+| `delete_chat_message` | Write | Soft delete a chat message you sent. |
+| `set_chat_message_reaction` | Write | Add or remove a reaction on a chat message. |
 
-To find unread chats, call `list_chats` with:
+#### Teams & Channels
 
-```json
-{
-  "tenantId": "<tenant-id from list_tenants>",
-  "unreadOnly": true
-}
-```
+| Tool | Access | Function |
+| --- | --- | --- |
+| `list_teams` | Read | List teams the current user has joined. |
+| `list_channels` | Read | List a team's channels and their basic details. |
+| `get_channel_messages` | Read | List thread roots or replies, or read a single channel message or reply. |
+| `send_channel_message` | Write | Start a new channel thread or reply within an existing thread. |
+| `update_channel_message` | Write | Edit a channel message or reply you sent. |
+| `delete_channel_message` | Write | Soft delete a channel message or reply you sent. |
+| `set_channel_message_reaction` | Write | Add or remove a reaction on a channel message or reply. |
 
-The tool lists chats newest message first (`$orderby=lastMessagePreview/createdDateTime desc`),
-follows all chat pages, and compares `lastMessagePreview.createdDateTime` with
-`viewpoint.lastMessageReadDateTime`, as described in the
-[Microsoft Graph documentation](https://learn.microsoft.com/en-us/graph/api/chat-list?view=graph-rest-1.0#example-4-list-chats-along-with-the-preview-of-the-last-message-sent-in-the-chat).
-It does not use the Search API's `IsRead` filter. Results retain the existing chat-list array
-format and include `isUnread`, `isHidden`, `lastMessageReadDateTime`, and `lastMessagePreview`
-(message ID, Markdown content, sender name, and creation time). Hidden chats are included.
-Missing or invalid timestamps produce `isUnread: null`; these chats are excluded when
-`unreadOnly` is true. If none match, the response notes any chats with unknown read status.
-Omit `unreadOnly` (or set it to false) to list all chats, including those with unknown status.
-This indicates messages after your read position, not other participants' Seen receipts.
-It covers chats, not channels, and does not change read state. To fetch the messages,
-use `get_chat_messages` with the returned chat ID and `since: lastMessageReadDateTime`.
+#### Files & Hosted Content
 
-Single-message reads keep the `{ totalReturned, hasMore, messages }` response envelope and
-support `contentFormat` (`markdown` or `raw`). Chat list filters, sorting, and pagination
-are ignored when `messageId` is supplied; channel `limit` is also ignored for single reads.
-With `messageId` and `listReplies: true`, `get_channel_messages` lists replies oldest first
-and returns them in `messages`, with `parentMessageId`, `totalReturned` and `hasMore`.
-`listReplies` cannot be combined with `replyId`. Thread roots remain newest first.
-A channel `replyId` requires the parent `messageId`. Reads do not mark messages read.
+| Tool | Access | Function |
+| --- | --- | --- |
+| `send_file_to_chat` | Write | Upload a local file to OneDrive and share it in a chat. |
+| `send_file_to_channel` | Write | Upload a local file to SharePoint and share it in a new or existing channel thread. |
+| `download_chat_hosted_content` | Read | Download inline hosted content from a chat message, optionally saving it to disk. |
+| `download_message_hosted_content` | Read | Download inline hosted content from a channel message or reply, optionally saving it to disk. |
 
-```json
-{ "name": "get_chat_messages", "arguments": { "chatId": "<chat>", "messageId": "<message>" } }
-{ "name": "get_channel_messages", "arguments": { "teamId": "<team>", "channelId": "<channel>", "messageId": "<parent>", "replyId": "<reply>" } }
-{ "name": "list_chat_members", "arguments": { "chatId": "<chat>" } }
-{ "name": "set_chat_read_state", "arguments": { "chatId": "<chat>", "isRead": true } }
-```
+#### Search
 
-`set_chat_read_state` uses the existing delegated `Chat.ReadWrite` permission and is disabled
-in read-only mode. When marking unread, omit `lastMessageReadDateTime` to mark the latest
-message unread, or supply an ISO timestamp to mark messages after that time unread.
-This timestamp is rejected with `isRead: true`. See Graph's
-[mark read](https://learn.microsoft.com/en-us/graph/api/chat-markchatreadforuser?view=graph-rest-1.0)
-and [mark unread](https://learn.microsoft.com/en-us/graph/api/chat-markchatunreadforuser?view=graph-rest-1.0) APIs.
-Member `id` identifies the membership record; use `userId` for mentions and user lookup.
-All calls support the existing optional `tenantId` selector.
+| Tool | Access | Function |
+| --- | --- | --- |
+| `search_messages` | Read | Search chat and channel messages with KQL, current-user mentions, and optional time filtering. |
 
-#### Consolidated tools and migration
+Unread chat detection compares the latest message time with the current user's read position;
+it does not use Search's `IsRead` filter or other participants' Seen receipts. Chats with unknown
+read status are excluded from unread-only results. Reading messages does not mark them read.
 
-The server exposes 26 tools (14 read-only and 12 write tools). Removed names are not aliases:
-
-| Previous tool | Replacement |
-| --- | --- |
-| `get_current_user` | `get_user` with no `userId` |
-| `search_users_for_mentions` | `search_users` with the same `query` and optional `limit` |
-| `get_my_mentions` | `search_messages` with `mentionsMe: true` and optional `hours` |
-| `get_channel_message_replies` | `get_channel_messages` with the same `messageId` and `listReplies: true` |
-| `unset_chat_message_reaction` | `set_chat_message_reaction` with `action: "remove"` |
-| `unset_channel_message_reaction` | `set_channel_message_reaction` with `action: "remove"` |
-
-Both reaction tools default to `action: "add"`; `reactionType` is required for either action.
-`search_users` returns an array (including `[]` for no matches), with `id`, `displayName`,
-`userPrincipalName`, `mail`, and `mentionText` when available. `id` is the user ID to use
-for a mention. Search failures are returned as errors, not as empty results.
-
-`search_messages` accepts a KQL query such as `from:bob hasAttachment:true`, or filters
-without keywords, for example `{ "mentionsMe": true, "hours": 24 }`.
-`mentionsMe` restricts results to current-user mentions and defaults to a 24-hour lookback;
-ordinary queries have no time restriction unless `hours` is supplied (1–168).
-Relevance ranking defaults to off for `mentionsMe` and on otherwise, with
-`enableTopResults` available to override it.
-
-Time filtering uses a date-level KQL prefilter and then checks each returned message's
-exact timestamp. Messages with missing or invalid timestamps are excluded from time-filtered
-results. `size` limits the search page before this filtering. Results always use the
-`results` array, including empty pages; continue with `nextFrom` when
-`moreResultsAvailable` is true, even if the current page is empty. `returned` is the
-number of messages after filtering; `total` is Graph's raw count before local filtering,
-not a guaranteed overall match count. See the
-[Teams Search API limitations](https://learn.microsoft.com/en-us/graph/search-concept-chat-messages#known-limitations).
-
-#### Media Operations
-- `download_message_hosted_content` - Download hosted content (images, files) from channel messages
-- `download_chat_hosted_content` - Download hosted content (images, files) from chat messages
-
-#### Search Operations
-- `search_messages` - Search Teams messages using KQL, `mentionsMe`, and optional `hours`
+Quoted chat replies require `ChatMessage.Send`. Existing connections without this permission
+must authenticate again in full mode; injected access tokens must also include this scope.
 
 ## 📋 Examples
 
