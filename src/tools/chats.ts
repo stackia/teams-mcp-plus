@@ -46,7 +46,7 @@ export function registerChatTools(
     {
       title: "List Chats",
       description:
-        "List the current user's 1:1, group, and meeting chats, following all pages. Set unreadOnly to find chats whose latest message is newer than the current user's read position. Returns participants, a latest-message preview, and read status (null if unavailable). Includes hidden chats and identifies them with isHidden. Does not mark messages as read or include channels. Use get_chat_messages with the chat ID and lastMessageReadDateTime to retrieve messages after the read position.",
+        "List the current user's 1:1, group, and meeting chats with participants, latest-message previews, and read status. Returns all pages, newest message first.",
       inputSchema: {
         ...tenantInputSchema,
         unreadOnly: z
@@ -69,7 +69,8 @@ export function registerChatTools(
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const chats: Chat[] = [];
-        let nextLink: string | undefined = "/me/chats?$expand=members,lastMessagePreview&$top=50";
+        let nextLink: string | undefined =
+          "/me/chats?$expand=members,lastMessagePreview&$top=50&$orderby=lastMessagePreview/createdDateTime desc";
         while (nextLink) {
           const response = (await client.api(nextLink).get()) as GraphApiResponse<Chat> | null;
           chats.push(...(response?.value ?? []));

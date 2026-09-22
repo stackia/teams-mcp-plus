@@ -477,7 +477,8 @@ To find unread chats, call `list_chats` with:
 }
 ```
 
-The tool follows all chat pages and compares `lastMessagePreview.createdDateTime` with
+The tool lists chats newest message first (`$orderby=lastMessagePreview/createdDateTime desc`),
+follows all chat pages, and compares `lastMessagePreview.createdDateTime` with
 `viewpoint.lastMessageReadDateTime`, as described in the
 [Microsoft Graph documentation](https://learn.microsoft.com/en-us/graph/api/chat-list?view=graph-rest-1.0#example-4-list-chats-along-with-the-preview-of-the-last-message-sent-in-the-chat).
 It does not use the Search API's `IsRead` filter. Results retain the existing chat-list array

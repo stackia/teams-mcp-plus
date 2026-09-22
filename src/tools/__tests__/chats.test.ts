@@ -145,7 +145,7 @@ describe("Chat Tools", () => {
       const result = await listChatsHandler();
 
       expect(mockClient.api).toHaveBeenCalledWith(
-        "/me/chats?$expand=members,lastMessagePreview&$top=50"
+        "/me/chats?$expand=members,lastMessagePreview&$top=50&$orderby=lastMessagePreview/createdDateTime desc"
       );
       expect(result.content[0].type).toBe("text");
 
