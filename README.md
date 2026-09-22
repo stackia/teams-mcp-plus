@@ -1,27 +1,31 @@
-# Teams MCP
+# Teams MCP Plus
 
-[![npm version](https://img.shields.io/npm/v/@floriscornel/teams-mcp.svg)](https://www.npmjs.com/package/@floriscornel/teams-mcp)
-[![npm downloads](https://img.shields.io/npm/dm/@floriscornel/teams-mcp.svg)](https://www.npmjs.com/package/@floriscornel/teams-mcp)
-[![codecov](https://codecov.io/gh/floriscornel/teams-mcp/graph/badge.svg)](https://app.codecov.io/gh/floriscornel/teams-mcp)
+[![npm version](https://img.shields.io/npm/v/teams-mcp-plus.svg)](https://www.npmjs.com/package/teams-mcp-plus)
+[![npm downloads](https://img.shields.io/npm/dm/teams-mcp-plus.svg)](https://www.npmjs.com/package/teams-mcp-plus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/floriscornel/teams-mcp.svg)](https://github.com/floriscornel/teams-mcp/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/stackia/teams-mcp.svg)](https://github.com/stackia/teams-mcp/stargazers)
 
-A Model Context Protocol (MCP) server that provides seamless integration with Microsoft Graph APIs, enabling AI assistants to interact with Microsoft Teams, users, chats, files, and organizational data.
+A Microsoft Teams MCP server with multi-tenant support. Connect multiple organizations in one server, with isolated credentials and explicit tenant selection for chats, channels, users, search, and file operations.
 
-<a href="https://glama.ai/mcp/servers/@floriscornel/teams-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@floriscornel/teams-mcp/badge" alt="Teams MCP server" />
-</a>
+Based on [Floris Cornel’s Teams MCP](https://github.com/floriscornel/teams-mcp), extended and maintained in this repository.
 
 ## 📦 Installation
 
-To use this MCP server in Cursor/Claude/VS Code, add the following configuration:
+Authenticate each tenant first (replace `<tenant-id>` with its Microsoft Entra directory GUID):
+
+```bash
+npx -y teams-mcp-plus@latest authenticate --tenant <tenant-id> --name Work
+npx -y teams-mcp-plus@latest tenants
+```
+
+Then add the following configuration in Cursor/Claude/VS Code:
 
 ```json
 {
   "mcpServers": {
-    "teams-mcp": {
+    "teams-mcp-plus": {
       "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"]
+      "args": ["-y", "teams-mcp-plus@latest"]
     }
   }
 }
@@ -30,6 +34,7 @@ To use this MCP server in Cursor/Claude/VS Code, add the following configuration
 ## 🚀 Features
 
 ### 🔐 Authentication
+- Multiple tenants in one server, with isolated credentials and per-call `tenantId` selection
 - OAuth 2.0 device code authentication flow with Microsoft Graph
 - Secure token management, cache persistence, and refresh token renewal
 - Authentication status checking and logout support
@@ -222,13 +227,13 @@ npm install
 npm run build
 
 # Set up authentication
-npm run auth
+npm run auth -- --tenant <tenant-id>
 ```
 
 ## 🔧 Configuration
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20.19+, 22.13+, or 24+
 - Microsoft 365 account with appropriate permissions
 - Microsoft Graph delegated permissions for the scopes below
 
@@ -289,7 +294,7 @@ Point your MCP client at the built checkout:
 }
 ```
 
-Omit `TEAMS_MCP_CONFIG_DIR` to use `~/.teams-mcp`; if you set it, use the same value when authenticating. The examples elsewhere using `npx ...@latest` require a published version containing this feature; use the local build for this checkout.
+Omit `TEAMS_MCP_CONFIG_DIR` to use `~/.teams-mcp`; if you set it, use the same value when authenticating. For the published package, use `npx -y teams-mcp-plus@latest` instead of `node dist/index.js`.
 
 Call `list_tenants` first. Every other tool accepts an optional `tenantId`:
 
@@ -322,13 +327,13 @@ node dist/index.js logout --all
 **Full access:**
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 ```
 
 **Read-only access:**
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 **Direct token injection with an existing Microsoft Graph JWT:**
@@ -336,9 +341,9 @@ npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
 ```json
 {
   "mcpServers": {
-    "teams-mcp": {
+    "teams-mcp-plus": {
       "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"],
+      "args": ["-y", "teams-mcp-plus@latest"],
       "env": {
         "AUTH_TOKEN": "<jwt-for-https://graph.microsoft.com>"
       }
@@ -372,12 +377,12 @@ TEAMS_MCP_READ_ONLY=true node dist/index.js
 ### CLI Commands
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>              # Authenticate with full scopes
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only  # Authenticate with read-only scopes
-npx @floriscornel/teams-mcp@latest check                     # Check authentication status
-npx @floriscornel/teams-mcp@latest logout --tenant <tenant-id>                    # Clear authentication
-npx @floriscornel/teams-mcp@latest auth --tenant <tenant-id>   # Alias for authenticate
-npx @floriscornel/teams-mcp@latest                           # Start MCP server (default)
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id>              # Authenticate with full scopes
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only  # Authenticate with read-only scopes
+npx teams-mcp-plus@latest check                     # Check authentication status
+npx teams-mcp-plus@latest logout --tenant <tenant-id>                    # Clear authentication
+npx teams-mcp-plus@latest auth --tenant <tenant-id>   # Alias for authenticate
+npx teams-mcp-plus@latest                           # Start MCP server (default)
 ```
 
 ### Environment Variables
@@ -397,16 +402,16 @@ The server supports a read-only mode that disables all write operations (sending
 
 **Authenticate with reduced scopes:**
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 **MCP server configuration (read-only):**
 ```json
 {
   "mcpServers": {
-    "teams-mcp": {
+    "teams-mcp-plus": {
       "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"],
+      "args": ["-y", "teams-mcp-plus@latest"],
       "env": {
         "TEAMS_MCP_READ_ONLY": "true"
       }
@@ -417,7 +422,7 @@ npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
 
 **Switching modes:** Scope grants are stored per tenant. A full-mode server can expose write tools while a tenant still has read-only grants; that tenant's write requests will fail with a Graph permission error. Re-authenticate that tenant without `--read-only` to request write permissions:
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 ```
 
 **Read-only tools (17):**
@@ -475,22 +480,22 @@ First, authenticate with Microsoft Graph:
 
 ```bash
 # Full access (default)
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 
 # Read-only (reduced permission scopes)
-npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
+npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 Check your authentication status:
 
 ```bash
-npx @floriscornel/teams-mcp@latest check
+npx teams-mcp-plus@latest check
 ```
 
 Logout if needed:
 
 ```bash
-npx @floriscornel/teams-mcp@latest logout --tenant <tenant-id>
+npx teams-mcp-plus@latest logout --tenant <tenant-id>
 ```
 
 ### Chat Pagination Example
@@ -543,9 +548,9 @@ This MCP server is designed to work with AI assistants like Claude/Cursor/VS Cod
 ```json
 {
   "mcpServers": {
-    "teams-mcp": {
+    "teams-mcp-plus": {
       "command": "npx",
-      "args": ["-y", "@floriscornel/teams-mcp@latest"]
+      "args": ["-y", "teams-mcp-plus@latest"]
     }
   }
 }

@@ -72,7 +72,7 @@ export class TenantStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error(
-          `Tenant ${id} is not connected. Run: teams-mcp authenticate --tenant ${id}`,
+          `Tenant ${id} is not connected. Run: teams-mcp-plus authenticate --tenant ${id}`,
           { cause: error }
         );
       }

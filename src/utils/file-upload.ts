@@ -282,7 +282,7 @@ export async function uploadFileToChat(
     } catch (orgErr: unknown) {
       // Fallback: try "users" scope if "organization" is blocked by tenant policy
       console.error(
-        `[teams-mcp] createLink (organization) failed for item ${uploadResult.id}:`,
+        `[teams-mcp-plus] createLink (organization) failed for item ${uploadResult.id}:`,
         orgErr instanceof Error ? orgErr.message : orgErr
       );
       try {
@@ -295,7 +295,7 @@ export async function uploadFileToChat(
       } catch (usersErr: unknown) {
         // Last resort: use the direct webUrl (may not work for recipients)
         console.error(
-          `[teams-mcp] createLink (users) also failed for item ${uploadResult.id}:`,
+          `[teams-mcp-plus] createLink (users) also failed for item ${uploadResult.id}:`,
           usersErr instanceof Error ? usersErr.message : usersErr
         );
       }

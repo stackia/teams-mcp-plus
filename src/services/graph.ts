@@ -103,7 +103,9 @@ export class GraphService {
     if (id === undefined) {
       const tenants = await this.listTenants();
       if (tenants.length === 0)
-        throw new Error("No tenants connected. Run: teams-mcp authenticate --tenant <tenant-id>");
+        throw new Error(
+          "No tenants connected. Run: teams-mcp-plus authenticate --tenant <tenant-id>"
+        );
       if (tenants.length !== 1)
         throw new Error(
           "Multiple tenants connected. Specify tenantId from list_tenants, or configure --tenant / TEAMS_MCP_TENANT_ID."

@@ -1,8 +1,8 @@
-# Copilot Instructions — teams-mcp
+# Copilot Instructions — teams-mcp-plus
 
 ## Project Overview
 
-MCP (Model Context Protocol) server that bridges AI assistants to Microsoft Teams via the Microsoft Graph API. Published as `@floriscornel/teams-mcp` on npm. Uses MSAL device-code auth with separate per-tenant credential directories (`~/.teams-mcp/<tenant-id>/`).
+MCP (Model Context Protocol) server that bridges AI assistants to Microsoft Teams via the Microsoft Graph API. Published as `teams-mcp-plus` on npm. Uses MSAL device-code auth with separate per-tenant credential directories (`~/.teams-mcp/<tenant-id>/`).
 
 ## Architecture
 

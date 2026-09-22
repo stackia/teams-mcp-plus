@@ -12,7 +12,7 @@ import { registerTeamsTools } from "./tools/teams.js";
 import { registerUsersTools } from "./tools/users.js";
 
 export function createServer(graphService: GraphService): McpServer {
-  const server = new McpServer({ name: "teams-mcp", version: "1.0.0" });
+  const server = new McpServer({ name: "teams-mcp-plus", version: "1.0.0" });
   registerAuthTools(server, graphService, graphService.readOnlyMode);
   registerUsersTools(server, graphService, graphService.readOnlyMode);
   registerTeamsTools(server, graphService, graphService.readOnlyMode);
@@ -34,14 +34,14 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     },
   });
   if (values.help || positionals[0] === "help") {
-    console.log(`Microsoft Graph Teams MCP — multiple tenants
+    console.log(`Microsoft Graph Teams MCP Plus — multiple tenants
 
-teams-mcp authenticate --tenant <tenant-id> [--name <label>] [--read-only]
-teams-mcp tenants                         List saved connections (no network check)
-teams-mcp check [--tenant <tenant-id>]     Check one tenant, or all connections
-teams-mcp logout --tenant <tenant-id>     Remove one tenant's local credentials
-teams-mcp logout --all                    Remove all saved tenant credentials
-teams-mcp [--tenant <default-tenant-id>] [--read-only]  Start MCP server
+teams-mcp-plus authenticate --tenant <tenant-id> [--name <label>] [--read-only]
+teams-mcp-plus tenants                         List saved connections (no network check)
+teams-mcp-plus check [--tenant <tenant-id>]     Check one tenant, or all connections
+teams-mcp-plus logout --tenant <tenant-id>     Remove one tenant's local credentials
+teams-mcp-plus logout --all                    Remove all saved tenant credentials
+teams-mcp-plus [--tenant <default-tenant-id>] [--read-only]  Start MCP server
 
 Environment:
   TEAMS_MCP_TENANT_ID     Default tenant (CLI --tenant takes precedence)
@@ -144,6 +144,6 @@ Call list_tenants to discover connections. Tool calls accept tenantId; without a
   if (command !== undefined) throw new Error(`Unknown command: ${command}. Use --help.`);
   await createServer(graphService).connect(new StdioServerTransport());
   console.error(
-    `Teams MCP server started${readOnly ? " (read-only)" : ""}; default tenant: ${tenantId ?? "automatic only for a single connection"}`
+    `Teams MCP Plus server started${readOnly ? " (read-only)" : ""}; default tenant: ${tenantId ?? "automatic only for a single connection"}`
   );
 }

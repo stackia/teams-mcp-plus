@@ -1,11 +1,11 @@
 {
-  "name": "@floriscornel/teams-mcp",
+  "name": "teams-mcp-plus",
   "version": "1.0.0",
-  "description": "MCP server for Microsoft Graph Teams integration",
+  "description": "Microsoft Teams MCP server with isolated multi-tenant authentication and Microsoft Graph integration",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "teams-mcp": "dist/index.js"
+    "teams-mcp-plus": "dist/index.js"
   },
   "files": [
     "dist/**/*",
@@ -45,11 +45,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/floriscornel/teams-mcp.git"
+    "url": "git+https://github.com/stackia/teams-mcp.git"
   },
-  "homepage": "https://github.com/floriscornel/teams-mcp#readme",
+  "homepage": "https://github.com/stackia/teams-mcp#readme",
   "bugs": {
-    "url": "https://github.com/floriscornel/teams-mcp/issues"
+    "url": "https://github.com/stackia/teams-mcp/issues"
   },
   "dependencies": {
     "@azure/identity": "^4.13.1",
@@ -82,6 +82,6 @@
     "vitest": "^4.1.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
   }
 }
