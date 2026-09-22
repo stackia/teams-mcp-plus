@@ -12,7 +12,7 @@ import { registerTeamsTools } from "./tools/teams.js";
 import { registerUsersTools } from "./tools/users.js";
 
 export function createServer(graphService: GraphService): McpServer {
-  const server = new McpServer({ name: "teams-mcp-plus", version: "1.1.0" });
+  const server = new McpServer({ name: "teams-mcp-plus", version: "1.1.1" });
   registerAuthTools(server, graphService, graphService.readOnlyMode);
   registerUsersTools(server, graphService, graphService.readOnlyMode);
   registerTeamsTools(server, graphService, graphService.readOnlyMode);
