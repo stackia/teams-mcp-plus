@@ -1,159 +1,146 @@
+vi.unmock("node:fs");
+
 import { promises as fs } from "node:fs";
-import type { TokenCacheContext } from "@azure/msal-node";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createCachePlugin } from "../msal-cache.js";
+import { TenantStore } from "../tenants.js";
+import { TENANT_A, TENANT_B, tenantProfile } from "../test-utils/tenants.js";
 
-// Mock the filesystem
-vi.mock("node:fs", () => ({
-  promises: {
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-  },
-}));
+let directory: string;
+let store: TenantStore;
+beforeEach(async () => {
+  directory = await fs.mkdtemp(join(tmpdir(), "teams-mcp-test-"));
+  store = new TenantStore(join(directory, "credentials"));
+});
+afterEach(async () => {
+  await fs.rm(directory, { recursive: true, force: true });
+});
 
-// Import after mocks are set up
-import { CACHE_PATH, cachePlugin } from "../msal-cache.js";
+const context = (data: string, changed = true) =>
+  ({
+    cacheHasChanged: changed,
+    tokenCache: { deserialize: vi.fn(), serialize: vi.fn().mockReturnValue(data) },
+  }) as any;
 
-describe("MSAL Cache Plugin", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("tenant credential storage", () => {
+  it("isolates concurrent cache reads and writes, including accounts with the same home ID", async () => {
+    const a = tenantProfile();
+    const b = tenantProfile(TENANT_B);
+    await Promise.all([store.save(a, "cache-a"), store.save(b, "cache-b")]);
+    const ca = context("new-a");
+    const cb = context("new-b");
+    const pa = createCachePlugin(store, a);
+    const pb = createCachePlugin(store, b);
+    await Promise.all([pa.beforeCacheAccess(ca), pb.beforeCacheAccess(cb)]);
+    expect(ca.tokenCache.deserialize).toHaveBeenCalledWith("cache-a");
+    expect(cb.tokenCache.deserialize).toHaveBeenCalledWith("cache-b");
+    await Promise.all([pa.afterCacheAccess(ca), pb.afterCacheAccess(cb)]);
+    expect(await fs.readFile(store.cachePath(a), "utf8")).toBe("new-a");
+    expect(await fs.readFile(store.cachePath(b), "utf8")).toBe("new-b");
   });
 
-  describe("beforeCacheAccess", () => {
-    it("should deserialize cache data from file when it exists", async () => {
-      const mockCacheData = '{"test": "data"}';
-      vi.mocked(fs.readFile).mockResolvedValue(mockCacheData);
-
-      const deserializeMock = vi.fn();
-      const cacheContext = {
-        tokenCache: {
-          deserialize: deserializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      await cachePlugin.beforeCacheAccess(cacheContext);
-
-      expect(fs.readFile).toHaveBeenCalledWith(CACHE_PATH, "utf8");
-      expect(deserializeMock).toHaveBeenCalledWith(mockCacheData);
-    });
-
-    it("should handle missing cache file (ENOENT) silently", async () => {
-      const error = new Error("File not found") as NodeJS.ErrnoException;
-      error.code = "ENOENT";
-      vi.mocked(fs.readFile).mockRejectedValue(error);
-
-      const deserializeMock = vi.fn();
-      const cacheContext = {
-        tokenCache: {
-          deserialize: deserializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Intentionally empty to suppress console output during tests
-      });
-
-      await cachePlugin.beforeCacheAccess(cacheContext);
-
-      expect(fs.readFile).toHaveBeenCalledWith(CACHE_PATH, "utf8");
-      expect(deserializeMock).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-
-      consoleErrorSpy.mockRestore();
-    });
-
-    it("should log error for other file read failures", async () => {
-      const error = new Error("Permission denied") as NodeJS.ErrnoException;
-      error.code = "EACCES";
-      vi.mocked(fs.readFile).mockRejectedValue(error);
-
-      const deserializeMock = vi.fn();
-      const cacheContext = {
-        tokenCache: {
-          deserialize: deserializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Intentionally empty to suppress console output during tests
-      });
-
-      await cachePlugin.beforeCacheAccess(cacheContext);
-
-      expect(fs.readFile).toHaveBeenCalledWith(CACHE_PATH, "utf8");
-      expect(deserializeMock).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith("Warning: Could not read token cache:", error);
-
-      consoleErrorSpy.mockRestore();
-    });
+  it("creates private credential directories and files", async () => {
+    const profile = tenantProfile();
+    await store.save(profile, "cache");
+    expect((await fs.stat(store.directory)).mode & 0o777).toBe(0o700);
+    expect((await fs.stat(join(store.directory, TENANT_A))).mode & 0o777).toBe(0o700);
+    expect((await fs.stat(store.cachePath(profile))).mode & 0o777).toBe(0o600);
+    expect((await fs.stat(join(store.directory, TENANT_A, "profile.json"))).mode & 0o777).toBe(
+      0o600
+    );
   });
 
-  describe("afterCacheAccess", () => {
-    it("should serialize and write cache data when cache has changed", async () => {
-      const mockSerializedData = '{"test": "serialized"}';
-      const serializeMock = vi.fn().mockReturnValue(mockSerializedData);
-
-      const cacheContext = {
-        cacheHasChanged: true,
-        tokenCache: {
-          serialize: serializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      await cachePlugin.afterCacheAccess(cacheContext);
-
-      expect(serializeMock).toHaveBeenCalled();
-      expect(fs.writeFile).toHaveBeenCalledWith(CACHE_PATH, mockSerializedData, "utf8");
-    });
-
-    it("should not write cache data when cache has not changed", async () => {
-      const serializeMock = vi.fn();
-
-      const cacheContext = {
-        cacheHasChanged: false,
-        tokenCache: {
-          serialize: serializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      await cachePlugin.afterCacheAccess(cacheContext);
-
-      expect(serializeMock).not.toHaveBeenCalled();
-      expect(fs.writeFile).not.toHaveBeenCalled();
-    });
-
-    it("should log error when cache write fails", async () => {
-      const error = new Error("Disk full");
-      vi.mocked(fs.writeFile).mockRejectedValue(error);
-
-      const mockSerializedData = '{"test": "serialized"}';
-      const serializeMock = vi.fn().mockReturnValue(mockSerializedData);
-
-      const cacheContext = {
-        cacheHasChanged: true,
-        tokenCache: {
-          serialize: serializeMock,
-        },
-      } as unknown as TokenCacheContext;
-
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Intentionally empty to suppress console output during tests
-      });
-
-      await cachePlugin.afterCacheAccess(cacheContext);
-
-      expect(serializeMock).toHaveBeenCalled();
-      expect(fs.writeFile).toHaveBeenCalledWith(CACHE_PATH, mockSerializedData, "utf8");
-      expect(consoleErrorSpy).toHaveBeenCalledWith("Warning: Could not write token cache:", error);
-
-      consoleErrorSpy.mockRestore();
-    });
+  it("logs out only the selected tenant and prevents stale cache access", async () => {
+    const a = tenantProfile();
+    const b = tenantProfile(TENANT_B);
+    await store.save(a, "a");
+    await store.save(b, "b");
+    const plugin = createCachePlugin(store, a);
+    await store.logout(TENANT_A);
+    await expect(plugin.beforeCacheAccess(context("stale"))).rejects.toThrow("not connected");
+    await expect(plugin.afterCacheAccess(context("stale"))).rejects.toThrow("not connected");
+    expect(await store.list()).toEqual([b]);
+    expect(await fs.readFile(store.cachePath(b), "utf8")).toBe("b");
   });
 
-  describe("CACHE_PATH", () => {
-    it("should export CACHE_PATH", () => {
-      expect(CACHE_PATH).toBeDefined();
-      expect(typeof CACHE_PATH).toBe("string");
-      expect(CACHE_PATH).toContain(".teams-mcp-token-cache.json");
-    });
+  it("does not let a stale process overwrite a new login", async () => {
+    const previous = tenantProfile();
+    const current = tenantProfile();
+    await store.save(previous, "old-cache");
+    await store.save(current, "new-cache");
+    await expect(
+      createCachePlugin(store, previous).afterCacheAccess(context("stale"))
+    ).rejects.toThrow("Authentication changed");
+    expect(await fs.readFile(store.cachePath(current), "utf8")).toBe("new-cache");
+    await store.logout(TENANT_A);
+    expect(await fs.readdir(store.directory)).toEqual([]);
+  });
+
+  it("does not write unchanged caches", async () => {
+    const profile = tenantProfile();
+    await store.save(profile, "old");
+    await createCachePlugin(store, profile).afterCacheAccess(context("new", false));
+    expect(await fs.readFile(store.cachePath(profile), "utf8")).toBe("old");
+  });
+
+  it("rejects unsafe tenant IDs and corrupt metadata instead of picking another account", async () => {
+    await expect(store.read("../outside")).rejects.toThrow();
+    await expect(store.logout("common")).rejects.toThrow();
+    await store.save(tenantProfile(), "cache");
+    await fs.writeFile(join(store.directory, TENANT_A, "profile.json"), "invalid-json");
+    await expect(store.read(TENANT_A)).rejects.toThrow();
+  });
+
+  it("surfaces missing cache and filesystem errors", async () => {
+    const profile = tenantProfile();
+    await store.save(profile, "cache");
+    await fs.unlink(store.cachePath(profile));
+    await expect(
+      createCachePlugin(store, profile).beforeCacheAccess(context("x"))
+    ).rejects.toThrow();
+    const invalidStore = new TenantStore(join(directory, "file"));
+    await fs.writeFile(invalidStore.directory, "not a directory");
+    await expect(invalidStore.save(profile, "cache")).rejects.toThrow();
+  });
+});
+
+describe("connection discovery during credential changes", () => {
+  it("returns an empty list for a new store and ignores unrelated or incomplete directories", async () => {
+    expect(await store.list()).toEqual([]);
+    await fs.mkdir(join(store.directory, TENANT_A), { recursive: true });
+    await fs.writeFile(join(store.directory, "README.txt"), "unrelated");
+    await store.save(tenantProfile(TENANT_B), "b");
+    expect((await store.list()).map((p) => p.tenantId)).toEqual([TENANT_B]);
+  });
+
+  it("surfaces malformed profiles and mismatched tenant IDs instead of implicitly switching tenants", async () => {
+    await store.save(tenantProfile(), "a");
+    await fs.writeFile(
+      join(store.directory, TENANT_A, "profile.json"),
+      JSON.stringify(tenantProfile(TENANT_B))
+    );
+    await expect(store.list()).rejects.toThrow("Tenant profile ID mismatch");
+  });
+
+  it("surfaces directory read errors rather than treating them as an empty store", async () => {
+    await fs.writeFile(store.directory, "file");
+    await expect(store.list()).rejects.toThrow();
+  });
+
+  it("keeps the previous login active if publishing its replacement fails", async () => {
+    const original = tenantProfile();
+    await store.save(original, "old");
+    const rename = vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("disk failure"));
+    try {
+      await expect(store.save(tenantProfile(), "new")).rejects.toThrow("disk failure");
+    } finally {
+      rename.mockRestore();
+    }
+    expect(await store.read(TENANT_A)).toEqual(original);
+    expect(
+      (await fs.readdir(join(store.directory, TENANT_A))).some((name) => name.endsWith(".tmp"))
+    ).toBe(false);
   });
 });

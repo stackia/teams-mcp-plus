@@ -1,11 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphService } from "../services/graph.js";
+import { tenantInputSchema } from "../tenants.js";
 import type { GraphApiResponse, User, UserSummary } from "../types/graph.js";
 
 export function registerUsersTools(
   server: McpServer,
-  graphService: GraphService,
+  graphServices: GraphService,
   _readOnly: boolean
 ) {
   // Get current user
@@ -15,7 +16,7 @@ export function registerUsersTools(
       title: "Get Current User",
       description:
         "Get the current authenticated user's profile information including display name, email, job title, and department.",
-      inputSchema: {},
+      inputSchema: { ...tenantInputSchema },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -23,8 +24,9 @@ export function registerUsersTools(
         openWorldHint: false,
       },
     },
-    async () => {
+    async ({ tenantId } = { tenantId: undefined }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const user = (await client.api("/me").get()) as User;
 
@@ -48,6 +50,7 @@ export function registerUsersTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -67,6 +70,7 @@ export function registerUsersTools(
       description:
         "Search for users in the organization by name or email address. Returns matching users with their basic profile information.",
       inputSchema: {
+        ...tenantInputSchema,
         query: z.string().describe("Search query (name or email)"),
       },
       annotations: {
@@ -76,8 +80,9 @@ export function registerUsersTools(
         openWorldHint: true,
       },
     },
-    async ({ query }) => {
+    async ({ tenantId, query }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const response = (await client
           .api("/users")
@@ -115,6 +120,7 @@ export function registerUsersTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -134,6 +140,7 @@ export function registerUsersTools(
       description:
         "Get detailed information about a specific user by their ID or email address. Returns profile information including name, email, job title, and department.",
       inputSchema: {
+        ...tenantInputSchema,
         userId: z.string().describe("User ID or email address"),
       },
       annotations: {
@@ -143,8 +150,9 @@ export function registerUsersTools(
         openWorldHint: false,
       },
     },
-    async ({ userId }) => {
+    async ({ tenantId, userId }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const user = (await client.api(`/users/${userId}`).get()) as User;
 
@@ -169,6 +177,7 @@ export function registerUsersTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",

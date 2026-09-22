@@ -1,195 +1,62 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createMockGraphService,
-  createMockMcpServer,
-  createMockUnauthenticatedGraphService,
-} from "../../test-utils/setup.js";
+import { createMockMcpServer } from "../../test-utils/setup.js";
+import { TENANT_A } from "../../test-utils/tenants.js";
 import { registerAuthTools } from "../auth.js";
 
-describe("Authentication Tools", () => {
-  let mockServer: any;
-  let mockGraphService: any;
+let server: ReturnType<typeof createMockMcpServer>;
+let service: any;
+beforeEach(() => {
+  server = createMockMcpServer();
+  service = {
+    forTenant: vi.fn().mockReturnThis(),
+    listTenants: vi.fn().mockResolvedValue([{ tenantId: TENANT_A, name: "Work" }]),
+    getAuthStatus: vi
+      .fn()
+      .mockResolvedValue({ tenantId: TENANT_A, isAuthenticated: true, displayName: "User" }),
+  };
+  registerAuthTools(server as any, service, false);
+});
 
-  beforeEach(() => {
-    mockServer = createMockMcpServer();
-    vi.clearAllMocks();
+describe("tenant discovery and authentication tools", () => {
+  it("lists tenants without requiring a default or refreshing tokens", async () => {
+    const result = await server.getTool("list_tenants").handler();
+    expect(JSON.parse(result.content[0].text)).toEqual([{ tenantId: TENANT_A, name: "Work" }]);
+    expect(service.forTenant).not.toHaveBeenCalled();
+    expect(service.getAuthStatus).not.toHaveBeenCalled();
   });
 
-  describe("auth_status tool", () => {
-    it("should register auth_status tool correctly", () => {
-      mockGraphService = createMockGraphService();
-      registerAuthTools(mockServer, mockGraphService, false);
-
-      expect(mockServer.registerTool).toHaveBeenCalledWith(
-        "auth_status",
-        expect.objectContaining({
-          title: "Auth Status",
-          description:
-            "Check the authentication status of the Microsoft Graph connection. Returns whether the user is authenticated and shows their basic profile information.",
-          inputSchema: {},
-          annotations: expect.objectContaining({
-            readOnlyHint: true,
-            destructiveHint: false,
-          }),
-        }),
-        expect.any(Function)
-      );
+  it("includes the selected tenant in live authentication status", async () => {
+    const result = await server.getTool("auth_status").handler({ tenantId: TENANT_A });
+    expect(service.forTenant).toHaveBeenCalledWith(TENANT_A);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      tenantId: TENANT_A,
+      isAuthenticated: true,
     });
-
-    it("should return authenticated status when user is authenticated", async () => {
-      mockGraphService = createMockGraphService();
-      registerAuthTools(mockServer, mockGraphService, false);
-
-      const authTool = mockServer.getTool("auth_status");
-      const result = await authTool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "✅ Authenticated as Test User (test.user@example.com)",
-          },
-        ],
-      });
-
-      expect(mockGraphService.getAuthStatus).toHaveBeenCalledTimes(1);
-    });
-
-    it("should return unauthenticated status when user is not authenticated", async () => {
-      mockGraphService = createMockUnauthenticatedGraphService();
-      registerAuthTools(mockServer, mockGraphService, false);
-
-      const authTool = mockServer.getTool("auth_status");
-      const result = await authTool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "❌ Not authenticated. Please run: npx @floriscornel/teams-mcp@latest authenticate",
-          },
-        ],
-      });
-
-      expect(mockGraphService.getAuthStatus).toHaveBeenCalledTimes(1);
-    });
-
-    it("should handle partial authentication data gracefully", async () => {
-      const partialMockGraphService = {
-        getAuthStatus: vi.fn().mockResolvedValue({
-          isAuthenticated: true,
-          displayName: "Test User",
-          // Missing userPrincipalName
-        }),
-      } as any;
-
-      registerAuthTools(mockServer, partialMockGraphService, false);
-
-      const authTool = mockServer.getTool("auth_status");
-      const result = await authTool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "✅ Authenticated as Test User (No email available)",
-          },
-        ],
-      });
-    });
-
-    it("should handle authentication status errors", async () => {
-      const errorMockGraphService = {
-        getAuthStatus: vi.fn().mockRejectedValue(new Error("Auth check failed")),
-      } as any;
-
-      registerAuthTools(mockServer, errorMockGraphService, false);
-
-      const authTool = mockServer.getTool("auth_status");
-
-      // Should throw the error since it's not caught in the tool
-      await expect(authTool.handler()).rejects.toThrow("Auth check failed");
-    });
-
-    it("should handle null/undefined user data", async () => {
-      const nullDataMockGraphService = {
-        getAuthStatus: vi.fn().mockResolvedValue({
-          isAuthenticated: true,
-          displayName: null,
-          userPrincipalName: null,
-        }),
-      } as any;
-
-      registerAuthTools(mockServer, nullDataMockGraphService, false);
-
-      const authTool = mockServer.getTool("auth_status");
-      const result = await authTool.handler();
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "✅ Authenticated as Unknown User (No email available)",
-          },
-        ],
-      });
-    });
+    expect(result.isError).toBe(false);
   });
 
-  describe("tool registration", () => {
-    it("should register all expected authentication tools", () => {
-      mockGraphService = createMockGraphService();
-      registerAuthTools(mockServer, mockGraphService, false);
-
-      const registeredTools = mockServer.getAllTools();
-      expect(registeredTools).toContain("auth_status");
-      expect(registeredTools).toHaveLength(1);
-    });
-
-    it("should handle GraphService being undefined", () => {
-      expect(() => {
-        registerAuthTools(mockServer, undefined as any, false);
-      }).not.toThrow();
-
-      // Tool should still be registered
-      expect(mockServer.registerTool).toHaveBeenCalledWith(
-        "auth_status",
-        expect.objectContaining({
-          description: expect.any(String),
-          inputSchema: {},
-        }),
-        expect.any(Function)
-      );
-    });
+  it("reports ambiguous selection as an MCP error", async () => {
+    service.forTenant.mockRejectedValueOnce(new Error("Multiple tenants connected"));
+    const result = await server.getTool("auth_status").handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Multiple tenants");
   });
 
-  describe("authentication state changes", () => {
-    it("should reflect real-time authentication status changes", async () => {
-      // Start with unauthenticated state
-      let isAuthenticated = false;
-      const dynamicMockGraphService = {
-        getAuthStatus: vi.fn().mockImplementation(() => {
-          return Promise.resolve({
-            isAuthenticated,
-            displayName: isAuthenticated ? "Test User" : undefined,
-            userPrincipalName: isAuthenticated ? "test.user@example.com" : undefined,
-          });
-        }),
-      } as any;
-
-      registerAuthTools(mockServer, dynamicMockGraphService, false);
-      const authTool = mockServer.getTool("auth_status");
-
-      // Check unauthenticated status
-      let result = await authTool.handler();
-      expect(result.content[0].text).toContain("❌ Not authenticated");
-
-      // Simulate authentication
-      isAuthenticated = true;
-
-      // Check authenticated status
-      result = await authTool.handler();
-      expect(result.content[0].text).toContain("✅ Authenticated as Test User");
+  it("reports expired credentials as an MCP error", async () => {
+    service.getAuthStatus.mockResolvedValueOnce({
+      tenantId: TENANT_A,
+      isAuthenticated: false,
+      error: "Interaction required",
     });
+    const result = await server.getTool("auth_status").handler({ tenantId: TENANT_A });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Interaction required");
   });
+});
+
+it("reports credential discovery errors without claiming an empty tenant list", async () => {
+  service.listTenants.mockRejectedValueOnce(new Error("Corrupt tenant profile"));
+  const result = await server.getTool("list_tenants").handler();
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toContain("Corrupt tenant profile");
 });

@@ -282,30 +282,24 @@ export const graphApiHandlers = [
 // Setup MSW server
 export const server = setupServer(...graphApiHandlers);
 
-// Global test setup
+// Filesystem stubs for tool tests; credential integration tests explicitly unmock this module.
+vi.mock("node:fs", async () => {
+  const actual = (await vi.importActual("node:fs")) as any;
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      readFile: vi.fn(),
+      writeFile: vi.fn(),
+      unlink: vi.fn(),
+      access: vi.fn(),
+    },
+  };
+});
+vi.mock("@azure/identity", () => ({ DeviceCodeCredential: vi.fn() }));
+
 beforeEach(() => {
-  // Reset all mocks before each test
   vi.clearAllMocks();
-
-  // Mock file system operations for token storage
-  vi.mock("node:fs", async () => {
-    const actual = (await vi.importActual("node:fs")) as any;
-    return {
-      ...actual,
-      promises: {
-        ...(actual.promises || {}),
-        readFile: vi.fn(),
-        writeFile: vi.fn(),
-        unlink: vi.fn(),
-        access: vi.fn(),
-      },
-    };
-  });
-
-  // Mock Azure identity
-  vi.mock("@azure/identity", () => ({
-    DeviceCodeCredential: vi.fn(),
-  }));
 });
 
 afterEach(() => {

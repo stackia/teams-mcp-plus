@@ -256,18 +256,79 @@ npm run auth
 - `TeamMember.Read.All`
 - `Chat.Read`
 
+### Multiple Tenants
+
+One MCP server can access several organizations concurrently. Authenticate **each target tenant separately**, including organizations where you are a guest. Use the Microsoft Entra directory **tenant ID (GUID)**; `common`, `organizations`, and tenant domains are not accepted. Each tenant stores one selected account; authenticating again replaces that tenant's active login. Different tenants may use the same home account or entirely different users. `--name` is a display label, not a routing alias.
+
+For a source checkout, build first, then connect two tenants:
+
+```bash
+npm ci
+npm run build
+node dist/index.js authenticate --tenant aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --name Work
+node dist/index.js authenticate --tenant bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb --name Customer --read-only
+node dist/index.js tenants
+node dist/index.js check
+```
+
+Replace the example IDs with real tenant IDs. The account must belong to or be invited into each tenant, and that tenant must permit the application and required Graph permissions. A login in the home tenant does not automatically authorize guest tenants.
+
+Point your MCP client at the built checkout:
+
+```json
+{
+  "mcpServers": {
+    "teams": {
+      "command": "node",
+      "args": ["/absolute/path/to/teams-mcp/dist/index.js"],
+      "env": {
+        "TEAMS_MCP_CONFIG_DIR": "/absolute/path/to/shared/teams-credentials"
+      }
+    }
+  }
+}
+```
+
+Omit `TEAMS_MCP_CONFIG_DIR` to use `~/.teams-mcp`; if you set it, use the same value when authenticating. The examples elsewhere using `npx ...@latest` require a published version containing this feature; use the local build for this checkout.
+
+Call `list_tenants` first. Every other tool accepts an optional `tenantId`:
+
+```json
+{ "name": "list_teams", "arguments": { "tenantId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" } }
+```
+
+```json
+{ "name": "search_messages", "arguments": { "tenantId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "query": "release" } }
+```
+
+Selection order is explicit tool `tenantId`, server `--tenant` / `TEAMS_MCP_TENANT_ID`, then the sole connected tenant. With multiple connections and no default, omission returns a selection error. An unknown or logged-out explicit/default tenant always fails; it never falls back to another tenant. Keep resource IDs with the tenant that produced them; results and searches are scoped to one tenant per call, not aggregated across organizations.
+
+```bash
+# Optional server default; individual tool calls can still target another tenant
+node dist/index.js --tenant aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+# Live check of one tenant; without --tenant/default, check covers all tenants
+node dist/index.js check --tenant bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+# Logout requires an explicit target, even if an environment default is configured
+node dist/index.js logout --tenant bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+node dist/index.js logout --all
+```
+
+`tenants` / `list_tenants` list local connections; they do not guarantee that consent or refresh tokens are still valid. `check` and `auth_status` acquire a token and call Graph `/me`. `check` exits nonzero if any checked connection fails. New logins and logout are detected by running servers without a restart; requests already submitted to Graph cannot be recalled. Logout clears local files, not Microsoft account sessions or consent. An injected `AUTH_TOKEN` remains active until removed from the environment and the server restarted.
+
+**Isolation design:** tenant-specific authorities are used for both device-code login and silent refresh. Account selection matches the persisted home account ID, local account ID, and tenant ID instead of taking the first cached account. A tool receives an immutable tenant-bound service, also passed to file uploads and user lookups. Each login has a separate cache revision; stale processes cannot overwrite the active login. Previous cache revisions are removed when that tenant is logged out. This follows Microsoft's guidance on [MSAL account selection](https://learn.microsoft.com/en-us/entra/msal/javascript/node/accounts) and [authority configuration](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-application-configuration).
+
 ### Authentication Modes
 
 **Full access:**
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
 ```
 
 **Read-only access:**
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --read-only
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 **Direct token injection with an existing Microsoft Graph JWT:**
@@ -288,8 +349,11 @@ npx @floriscornel/teams-mcp@latest authenticate --read-only
 
 ### Token Storage
 
-- Auth metadata is stored locally at `~/.msgraph-mcp-auth.json`
-- Token cache is stored locally at `~/.teams-mcp-token-cache.json`
+- Each tenant has its own directory: `~/.teams-mcp/<tenant-id>/`.
+- `profile.json` records the selected account, label, granted scopes, and login revision.
+- `<revision>.cache.json` contains the MSAL tokens for that login. Files use mode `0600`, and newly created directories use `0700` on POSIX systems. Writes are atomic. These files contain credentials in plaintext; protect the directory.
+- `TEAMS_MCP_CONFIG_DIR` overrides the storage root. All CLI and MCP processes that share connections must use the same directory.
+- Old single-account files are neither read nor migrated. Re-authenticate each tenant; obsolete legacy files can be removed manually.
 
 ## 🛠️ Usage
 
@@ -308,18 +372,20 @@ TEAMS_MCP_READ_ONLY=true node dist/index.js
 ### CLI Commands
 
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate              # Authenticate with full scopes
-npx @floriscornel/teams-mcp@latest authenticate --read-only  # Authenticate with read-only scopes
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>              # Authenticate with full scopes
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only  # Authenticate with read-only scopes
 npx @floriscornel/teams-mcp@latest check                     # Check authentication status
-npx @floriscornel/teams-mcp@latest logout                    # Clear authentication
-npx @floriscornel/teams-mcp@latest auth                      # Alias for authenticate
+npx @floriscornel/teams-mcp@latest logout --tenant <tenant-id>                    # Clear authentication
+npx @floriscornel/teams-mcp@latest auth --tenant <tenant-id>   # Alias for authenticate
 npx @floriscornel/teams-mcp@latest                           # Start MCP server (default)
 ```
 
 ### Environment Variables
 
 - `TEAMS_MCP_READ_ONLY=true` - Start the MCP server in read-only mode
-- `AUTH_TOKEN=<jwt>` - Use a pre-existing Microsoft Graph access token instead of MSAL login
+- `TEAMS_MCP_TENANT_ID=<tenant-id>` - Default tenant; `--tenant` takes precedence. Explicit tool `tenantId` overrides both.
+- `TEAMS_MCP_CONFIG_DIR=<path>` - Shared credential directory (default: `~/.teams-mcp`).
+- `AUTH_TOKEN=<jwt>` - Pre-issued Graph token, used only for the tenant in its `tid` claim. Other tenants continue to use their own MSAL credentials. The token must have a valid Graph audience and unexpired `exp`; it is never written to disk or refreshed.
 
 ### Read-Only Mode
 
@@ -331,7 +397,7 @@ The server supports a read-only mode that disables all write operations (sending
 
 **Authenticate with reduced scopes:**
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate --read-only
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 **MCP server configuration (read-only):**
@@ -349,20 +415,21 @@ npx @floriscornel/teams-mcp@latest authenticate --read-only
 }
 ```
 
-**Switching modes:** When switching from read-only to full mode, the server detects the scope mismatch and warns you to re-authenticate:
+**Switching modes:** Scope grants are stored per tenant. A full-mode server can expose write tools while a tenant still has read-only grants; that tenant's write requests will fail with a Graph permission error. Re-authenticate that tenant without `--read-only` to request write permissions:
 ```bash
-npx @floriscornel/teams-mcp@latest authenticate
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
 ```
 
-**Read-only tools (16):**
-`auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
+**Read-only tools (17):**
+`list_tenants`, `auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
 
-**Write tools disabled in read-only mode (10):**
-`send_channel_message`, `reply_to_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`
+**Write tools disabled in read-only mode (14):**
+`send_channel_message`, `reply_to_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
 
 ### Available MCP Tools
 
 #### Authentication
+- `list_tenants` - List tenant IDs, labels, account names, scopes, and the configured default (no token refresh)
 - `auth_status` - Check current authentication status
 
 #### User Operations
@@ -408,10 +475,10 @@ First, authenticate with Microsoft Graph:
 
 ```bash
 # Full access (default)
-npx @floriscornel/teams-mcp@latest authenticate
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id>
 
 # Read-only (reduced permission scopes)
-npx @floriscornel/teams-mcp@latest authenticate --read-only
+npx @floriscornel/teams-mcp@latest authenticate --tenant <tenant-id> --read-only
 ```
 
 Check your authentication status:
@@ -423,7 +490,7 @@ npx @floriscornel/teams-mcp@latest check
 Logout if needed:
 
 ```bash
-npx @floriscornel/teams-mcp@latest logout
+npx @floriscornel/teams-mcp@latest logout --tenant <tenant-id>
 ```
 
 ### Chat Pagination Example
@@ -488,10 +555,9 @@ This MCP server is designed to work with AI assistants like Claude/Cursor/VS Cod
 
 - All authentication is handled through Microsoft's OAuth 2.0 flow or a caller-provided Microsoft Graph token
 - **Refresh token support**: Access tokens are automatically renewed using cached refresh tokens, so you don't need to re-authenticate every hour
-- Token cache is stored locally at `~/.teams-mcp-token-cache.json`
-- Auth metadata is stored locally at `~/.msgraph-mcp-auth.json`
+- Credentials are isolated per tenant under `~/.teams-mcp/<tenant-id>/`; logout removes all login generations for that tenant.
 - Markdown content is sanitized before sending HTML to Teams
-- `AUTH_TOKEN` is validated to ensure it targets `https://graph.microsoft.com`
+- `AUTH_TOKEN` routing checks its Graph audience, tenant ID, and expiry. Microsoft Graph validates the token signature and permissions.
 - No sensitive data is logged or exposed
 - Follows Microsoft Graph API security best practices
 

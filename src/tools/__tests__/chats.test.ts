@@ -32,6 +32,7 @@ const mockClient = {
 describe("Chat Tools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGraphService.forTenant = vi.fn().mockReturnThis();
     mockGraphService.getClient = vi.fn().mockResolvedValue(mockClient);
   });
 

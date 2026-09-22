@@ -1,37 +1,19 @@
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import type { ICachePlugin, TokenCacheContext } from "@azure/msal-node";
+import type { ICachePlugin } from "@azure/msal-node";
+import { atomicWrite, type TenantProfile, type TenantStore } from "./tenants.js";
 
-const CACHE_PATH = join(homedir(), ".teams-mcp-token-cache.json");
-
-/**
- * Custom file-based cache plugin for MSAL Node
- * Stores tokens (including refresh tokens) in a JSON file
- */
-export const cachePlugin: ICachePlugin = {
-  async beforeCacheAccess(cacheContext: TokenCacheContext): Promise<void> {
-    try {
-      const data = await fs.readFile(CACHE_PATH, "utf8");
-      cacheContext.tokenCache.deserialize(data);
-    } catch (error) {
-      // File doesn't exist or is invalid - start with empty cache
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        console.error("Warning: Could not read token cache:", error);
-      }
-    }
-  },
-
-  async afterCacheAccess(cacheContext: TokenCacheContext): Promise<void> {
-    if (cacheContext.cacheHasChanged) {
-      try {
-        const data = cacheContext.tokenCache.serialize();
-        await fs.writeFile(CACHE_PATH, data, "utf8");
-      } catch (error) {
-        console.error("Warning: Could not write token cache:", error);
-      }
-    }
-  },
-};
-
-export { CACHE_PATH };
+/** A cache is tied to one tenant and one login, including refreshes in long-running servers. */
+export function createCachePlugin(store: TenantStore, profile: TenantProfile): ICachePlugin {
+  return {
+    async beforeCacheAccess(context) {
+      await store.assertCurrent(profile);
+      context.tokenCache.deserialize(await fs.readFile(store.cachePath(profile), "utf8"));
+    },
+    async afterCacheAccess(context) {
+      if (!context.cacheHasChanged) return;
+      await store.assertCurrent(profile);
+      // Never recreate a directory after logout. A concurrent re-login uses a different path.
+      await atomicWrite(store.cachePath(profile), context.tokenCache.serialize());
+    },
+  };
+}

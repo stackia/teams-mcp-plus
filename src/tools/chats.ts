@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphService } from "../services/graph.js";
+import { tenantInputSchema } from "../tenants.js";
 import type {
   Chat,
   ChatMessage,
@@ -36,7 +37,7 @@ import { processMentionsInHtml } from "../utils/users.js";
  */
 export function registerChatTools(
   server: McpServer,
-  graphService: GraphService,
+  graphServices: GraphService,
   readOnly: boolean
 ) {
   // List user's chats
@@ -46,7 +47,7 @@ export function registerChatTools(
       title: "List Chats",
       description:
         "List all recent chats (1:1 conversations and group chats) that the current user participates in. Returns chat topics, types, and participant information.",
-      inputSchema: {},
+      inputSchema: { ...tenantInputSchema },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -54,8 +55,9 @@ export function registerChatTools(
         openWorldHint: false,
       },
     },
-    async () => {
+    async ({ tenantId } = { tenantId: undefined }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         // Build query parameters
         const queryParams: string[] = ["$expand=members"];
 
@@ -97,6 +99,7 @@ export function registerChatTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -116,6 +119,7 @@ export function registerChatTools(
       description:
         "Retrieve recent messages from a specific chat conversation. Returns message content, sender information, and timestamps.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID (e.g. 19:meeting_Njhi..j@thread.v2"),
         limit: z
           .number()
@@ -160,6 +164,7 @@ export function registerChatTools(
       },
     },
     async ({
+      tenantId,
       chatId,
       limit,
       since,
@@ -171,6 +176,7 @@ export function registerChatTools(
       contentFormat,
     }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Apply defaults for parameters (in case Zod validation is bypassed)
@@ -328,6 +334,7 @@ export function registerChatTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -347,6 +354,7 @@ export function registerChatTools(
       description:
         "Download hosted content (such as images) from a chat message. Returns the content as base64 encoded data along with metadata. Use this to retrieve images or other inline content embedded in chat messages.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID containing the hosted content"),
         hostedContentId: z
@@ -369,8 +377,9 @@ export function registerChatTools(
         openWorldHint: false,
       },
     },
-    async ({ chatId, messageId, hostedContentId, savePath }) => {
+    async ({ tenantId, chatId, messageId, hostedContentId, savePath }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         const message = (await client
@@ -534,6 +543,7 @@ export function registerChatTools(
       description:
         "Send a message to a specific chat conversation. Supports text and markdown formatting, mentions, and importance levels.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         message: z.string().describe("Message content"),
         importance: z.enum(["normal", "high", "urgent"]).optional().describe("Message importance"),
@@ -560,8 +570,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, message, importance = "normal", format = "text", mentions }) => {
+    async ({ tenantId, chatId, message, importance = "normal", format = "text", mentions }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Process message content based on format
@@ -674,6 +685,7 @@ export function registerChatTools(
       description:
         "Create a new chat conversation. Can be a 1:1 chat (with one other user) or a group chat (with multiple users). Group chats can optionally have a topic.",
       inputSchema: {
+        ...tenantInputSchema,
         userEmails: z.array(z.string()).describe("Array of user email addresses to add to chat"),
         topic: z.string().optional().describe("Chat topic (for group chats)"),
       },
@@ -684,8 +696,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ userEmails, topic }) => {
+    async ({ tenantId, userEmails, topic }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Get current user ID
@@ -738,6 +751,7 @@ export function registerChatTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -757,6 +771,7 @@ export function registerChatTools(
       description:
         "Update (edit) a chat message that was previously sent. Only the message sender can update their own messages. Supports updating content with text or Markdown formatting, mentions, and importance levels.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID to update"),
         message: z.string().describe("New message content"),
@@ -784,8 +799,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, messageId, message, importance, format = "text", mentions }) => {
+    async ({ tenantId, chatId, messageId, message, importance, format = "text", mentions }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Process message content based on format
@@ -903,6 +919,7 @@ export function registerChatTools(
       description:
         "Soft delete a chat message that was previously sent. Only the message sender can delete their own messages. The message will be marked as deleted but can still be seen as '[This message has been deleted]'.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID to delete"),
       },
@@ -913,8 +930,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, messageId }) => {
+    async ({ tenantId, chatId, messageId }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Get current user ID for the endpoint
@@ -957,6 +975,7 @@ export function registerChatTools(
       description:
         "Add a reaction to a message in a chat conversation. Supports Unicode emoji characters and named reactions (like, angry, sad, laugh, heart, surprised).",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID to react to"),
         reactionType: z
@@ -972,8 +991,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, messageId, reactionType }) => {
+    async ({ tenantId, chatId, messageId, reactionType }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         await client
@@ -1010,6 +1030,7 @@ export function registerChatTools(
       title: "Unset Chat Message Reaction",
       description: "Remove a reaction from a message in a chat conversation.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID to remove reaction from"),
         reactionType: z
@@ -1025,8 +1046,9 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, messageId, reactionType }) => {
+    async ({ tenantId, chatId, messageId, reactionType }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         await client
@@ -1064,6 +1086,7 @@ export function registerChatTools(
       description:
         "Upload a local file and send it as a message to a Teams chat. Supports any file type (PDF, DOCX, ZIP, images, etc.). The file is uploaded to OneDrive and sent as a reference attachment.",
       inputSchema: {
+        ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         filePath: z.string().describe("Absolute path to the local file to upload"),
         message: z.string().optional().describe("Optional message text to accompany the file"),
@@ -1084,8 +1107,17 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ chatId, filePath, message, fileName, format = "text", importance = "normal" }) => {
+    async ({
+      tenantId,
+      chatId,
+      filePath,
+      message,
+      fileName,
+      format = "text",
+      importance = "normal",
+    }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         const uploadResult = await uploadFileToChat(graphService, filePath, fileName);

@@ -40,6 +40,7 @@ describe("Teams Tools", () => {
     };
 
     mockGraphService = {
+      forTenant: vi.fn().mockReturnThis(),
       getClient: vi.fn().mockResolvedValue(mockClient),
     };
 
@@ -88,7 +89,7 @@ describe("Teams Tools", () => {
           title: "List Teams",
           description:
             "List all Microsoft Teams that the current user is a member of. Returns team names, descriptions, and IDs.",
-          inputSchema: {},
+          inputSchema: { tenantId: expect.any(Object) },
           annotations: expect.objectContaining({
             readOnlyHint: true,
             destructiveHint: false,
@@ -162,6 +163,7 @@ describe("Teams Tools", () => {
       const result = await tool.handler();
 
       expect(result).toEqual({
+        isError: true,
         content: [
           {
             type: "text",

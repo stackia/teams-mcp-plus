@@ -18,6 +18,7 @@ describe("Users Tools", () => {
     };
 
     mockGraphService = {
+      forTenant: vi.fn().mockReturnThis(),
       getClient: vi.fn().mockResolvedValue(mockClient),
     };
 
@@ -34,7 +35,7 @@ describe("Users Tools", () => {
           title: "Get Current User",
           description:
             "Get the current authenticated user's profile information including display name, email, job title, and department.",
-          inputSchema: {},
+          inputSchema: { tenantId: expect.any(Object) },
           annotations: expect.objectContaining({
             readOnlyHint: true,
             destructiveHint: false,
@@ -81,6 +82,7 @@ describe("Users Tools", () => {
       const result = await tool.handler();
 
       expect(result).toEqual({
+        isError: true,
         content: [
           {
             type: "text",
@@ -98,6 +100,7 @@ describe("Users Tools", () => {
       const result = await tool.handler();
 
       expect(result).toEqual({
+        isError: true,
         content: [
           {
             type: "text",
@@ -202,6 +205,7 @@ describe("Users Tools", () => {
       const result = await tool.handler({ query: "test" });
 
       expect(result).toEqual({
+        isError: true,
         content: [
           {
             type: "text",
@@ -284,6 +288,7 @@ describe("Users Tools", () => {
       const result = await tool.handler({ userId: "nonexistent-user" });
 
       expect(result).toEqual({
+        isError: true,
         content: [
           {
             type: "text",

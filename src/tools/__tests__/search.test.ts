@@ -49,6 +49,7 @@ function makeHit(overrides: Record<string, any> = {}) {
 describe("Search Tools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGraphService.forTenant = vi.fn().mockReturnThis();
     mockGraphService.getClient = vi.fn().mockResolvedValue(mockClient);
   });
 

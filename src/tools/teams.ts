@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphService } from "../services/graph.js";
+import { tenantInputSchema } from "../tenants.js";
 import type {
   Channel,
   ChannelSummary,
@@ -44,7 +45,7 @@ import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/user
  */
 export function registerTeamsTools(
   server: McpServer,
-  graphService: GraphService,
+  graphServices: GraphService,
   readOnly: boolean
 ) {
   // List user's teams
@@ -54,7 +55,7 @@ export function registerTeamsTools(
       title: "List Teams",
       description:
         "List all Microsoft Teams that the current user is a member of. Returns team names, descriptions, and IDs.",
-      inputSchema: {},
+      inputSchema: { ...tenantInputSchema },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -62,8 +63,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async () => {
+    async ({ tenantId } = { tenantId: undefined }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const response = (await client.api("/me/joinedTeams").get()) as GraphApiResponse<Team>;
 
@@ -96,6 +98,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -115,6 +118,7 @@ export function registerTeamsTools(
       description:
         "List all channels in a specific Microsoft Team. Returns channel names, descriptions, types, and IDs for the specified team.",
       inputSchema: {
+        ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
       },
       annotations: {
@@ -124,8 +128,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ teamId }) => {
+    async ({ tenantId, teamId }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const response = (await client
           .api(`/teams/${teamId}/channels`)
@@ -160,6 +165,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -179,6 +185,7 @@ export function registerTeamsTools(
       description:
         "Retrieve recent messages from a specific channel in a Microsoft Team. Returns message content, sender information, and timestamps.",
       inputSchema: {
+        ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
         limit: z
@@ -203,8 +210,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ teamId, channelId, limit, contentFormat }) => {
+    async ({ tenantId, teamId, channelId, limit, contentFormat }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Build query parameters - Teams channel messages API has limited query support
@@ -274,6 +282,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -294,6 +303,7 @@ export function registerTeamsTools(
         description:
           "Send a message to a specific channel in a Microsoft Team. Supports text and markdown formatting, mentions, and importance levels.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           message: z.string().describe("Message content"),
@@ -332,6 +342,7 @@ export function registerTeamsTools(
         },
       },
       async ({
+        tenantId,
         teamId,
         channelId,
         message,
@@ -344,6 +355,7 @@ export function registerTeamsTools(
         imageFileName,
       }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           // Process message content based on format
@@ -520,6 +532,7 @@ export function registerTeamsTools(
       description:
         "Get all replies to a specific message in a channel. Returns reply content, sender information, and timestamps.",
       inputSchema: {
+        ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
         messageId: z.string().describe("Message ID to get replies for"),
@@ -545,8 +558,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ teamId, channelId, messageId, limit, contentFormat }) => {
+    async ({ tenantId, teamId, channelId, messageId, limit, contentFormat }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Only $top is supported for message replies
@@ -618,6 +632,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -638,6 +653,7 @@ export function registerTeamsTools(
         description:
           "Reply to a specific message in a channel. Supports text and markdown formatting, mentions, and importance levels.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Message ID to reply to"),
@@ -677,6 +693,7 @@ export function registerTeamsTools(
         },
       },
       async ({
+        tenantId,
         teamId,
         channelId,
         messageId,
@@ -690,6 +707,7 @@ export function registerTeamsTools(
         imageFileName,
       }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           // Process message content based on format
@@ -866,6 +884,7 @@ export function registerTeamsTools(
       description:
         "List all members of a specific Microsoft Team. Returns member names, email addresses, roles, and IDs.",
       inputSchema: {
+        ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
       },
       annotations: {
@@ -875,8 +894,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ teamId }) => {
+    async ({ tenantId, teamId }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
         const response = (await client
           .api(`/teams/${teamId}/members`)
@@ -910,6 +930,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -929,6 +950,7 @@ export function registerTeamsTools(
       description:
         "Search for users to mention in messages. Returns users with their display names, email addresses, and mention IDs.",
       inputSchema: {
+        ...tenantInputSchema,
         query: z.string().describe("Search query (name or email)"),
         limit: z
           .number()
@@ -945,8 +967,9 @@ export function registerTeamsTools(
         openWorldHint: true,
       },
     },
-    async ({ query, limit }) => {
+    async ({ tenantId, query, limit }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const users = await searchUsers(graphService, query, limit);
 
         if (users.length === 0) {
@@ -986,6 +1009,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -1005,6 +1029,7 @@ export function registerTeamsTools(
       description:
         "Download hosted content (such as images) from a Teams channel message. Returns the content as base64 encoded data along with metadata. Use this to retrieve images or other inline content embedded in messages.",
       inputSchema: {
+        ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
         messageId: z.string().describe("Message ID containing the hosted content"),
@@ -1032,8 +1057,9 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ teamId, channelId, messageId, replyId, hostedContentId, savePath }) => {
+    async ({ tenantId, teamId, channelId, messageId, replyId, hostedContentId, savePath }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Build endpoint based on whether it's a reply or main message
@@ -1221,6 +1247,7 @@ export function registerTeamsTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -1241,6 +1268,7 @@ export function registerTeamsTools(
         description:
           "Soft delete a message in a channel. Only the message sender can delete their own messages. The message will be marked as deleted.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Message ID to delete"),
@@ -1256,8 +1284,9 @@ export function registerTeamsTools(
           openWorldHint: true,
         },
       },
-      async ({ teamId, channelId, messageId, replyId }) => {
+      async ({ tenantId, teamId, channelId, messageId, replyId }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           // Build endpoint based on whether it's a reply or main message
@@ -1302,6 +1331,7 @@ export function registerTeamsTools(
         description:
           "Update (edit) a message in a channel that was previously sent. Only the message sender can update their own messages.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Message ID to update"),
@@ -1338,6 +1368,7 @@ export function registerTeamsTools(
         },
       },
       async ({
+        tenantId,
         teamId,
         channelId,
         messageId,
@@ -1348,6 +1379,7 @@ export function registerTeamsTools(
         mentions,
       }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           // Process message content based on format
@@ -1463,6 +1495,7 @@ export function registerTeamsTools(
         description:
           "Add a reaction to a message in a Teams channel. Supports Unicode emoji characters and named reactions (like, angry, sad, laugh, heart, surprised). Can also react to replies.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Message ID to react to"),
@@ -1480,8 +1513,9 @@ export function registerTeamsTools(
           openWorldHint: true,
         },
       },
-      async ({ teamId, channelId, messageId, reactionType, replyId }) => {
+      async ({ tenantId, teamId, channelId, messageId, reactionType, replyId }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           const endpoint = replyId
@@ -1525,6 +1559,7 @@ export function registerTeamsTools(
         description:
           "Remove a reaction from a message in a Teams channel. Can also remove reactions from replies.",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Message ID to remove reaction from"),
@@ -1545,8 +1580,9 @@ export function registerTeamsTools(
           openWorldHint: true,
         },
       },
-      async ({ teamId, channelId, messageId, reactionType, replyId }) => {
+      async ({ tenantId, teamId, channelId, messageId, reactionType, replyId }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           const endpoint = replyId
@@ -1590,6 +1626,7 @@ export function registerTeamsTools(
         description:
           "Upload a local file and send it as a message to a Teams channel. Supports any file type (PDF, DOCX, ZIP, images, etc.). The file is uploaded to the channel's SharePoint folder and sent as a reference attachment. If messageId is provided, the file is sent as a reply to that message (thread).",
         inputSchema: {
+          ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           filePath: z.string().describe("Absolute path to the local file to upload"),
@@ -1621,6 +1658,7 @@ export function registerTeamsTools(
         },
       },
       async ({
+        tenantId,
         teamId,
         channelId,
         filePath,
@@ -1631,6 +1669,7 @@ export function registerTeamsTools(
         messageId,
       }) => {
         try {
+          const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
           const uploadResult = await uploadFileToChannel(

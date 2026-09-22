@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphService } from "../services/graph.js";
+import { tenantInputSchema } from "../tenants.js";
 import type { SearchHit, SearchRequest, SearchResponse } from "../types/graph.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 
@@ -33,7 +34,7 @@ export function formatSearchHits(
 
 export function registerSearchTools(
   server: McpServer,
-  graphService: GraphService,
+  graphServices: GraphService,
   _readOnly: boolean
 ) {
   server.registerTool(
@@ -58,6 +59,7 @@ export function registerSearchTools(
         "Use get_chat_messages or get_channel_messages for browsing a specific conversation.",
       ].join("\n"),
       inputSchema: {
+        ...tenantInputSchema,
         query: z
           .string()
           .describe("Search query string. Supports KQL syntax (see tool description)"),
@@ -94,8 +96,9 @@ export function registerSearchTools(
         openWorldHint: true,
       },
     },
-    async ({ query, from, size, enableTopResults, contentFormat }) => {
+    async ({ tenantId, query, from, size, enableTopResults, contentFormat }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         const searchRequest: SearchRequest = {
@@ -139,6 +142,7 @@ export function registerSearchTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [{ type: "text", text: `❌ Error searching messages: ${errorMessage}` }],
         };
       }
@@ -152,6 +156,7 @@ export function registerSearchTools(
       description:
         "Find recent messages where the current user was @mentioned across all Teams channels and chats.",
       inputSchema: {
+        ...tenantInputSchema,
         hours: z
           .number()
           .min(1)
@@ -181,8 +186,9 @@ export function registerSearchTools(
         openWorldHint: false,
       },
     },
-    async ({ hours, size, contentFormat }) => {
+    async ({ tenantId, hours, size, contentFormat }) => {
       try {
+        const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         // Resolve current user
@@ -234,6 +240,7 @@ export function registerSearchTools(
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
         return {
+          isError: true,
           content: [{ type: "text", text: `❌ Error getting mentions: ${errorMessage}` }],
         };
       }
