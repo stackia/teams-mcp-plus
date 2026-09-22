@@ -114,6 +114,43 @@ describe("Chat details and read state", () => {
     expect(api).not.toHaveBeenCalled();
   });
 
+  it("lists a thread's replies oldest first using the messages envelope", async () => {
+    get.mockResolvedValue({
+      value: [
+        { ...message, id: "later", createdDateTime: "2026-09-23T12:00:00Z" },
+        { ...message, id: "earlier", createdDateTime: "2026-09-23T11:00:00Z" },
+      ],
+      "@odata.nextLink": "next-page",
+    });
+    const result = await call("get_channel_messages", {
+      teamId: "team",
+      channelId: "channel",
+      messageId: "root/#",
+      listReplies: true,
+      limit: 2,
+    });
+    expect(api).toHaveBeenCalledExactlyOnceWith(
+      "/teams/team/channels/channel/messages/root%2F%23/replies?$top=2"
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.parentMessageId).toBe("root/#");
+    expect(parsed.hasMore).toBe(true);
+    expect(parsed.messages.map((m: any) => m.id)).toEqual(["earlier", "later"]);
+  });
+
+  it.each([{ listReplies: true }, { listReplies: true, messageId: "root", replyId: "reply" }])(
+    "rejects ambiguous reply-list arguments %j",
+    async (args) => {
+      const result = await call("get_channel_messages", {
+        teamId: "team",
+        channelId: "channel",
+        ...args,
+      });
+      expect(result.isError).toBe(true);
+      expect(api).not.toHaveBeenCalled();
+    }
+  );
+
   it("lists all member pages and distinguishes membership IDs from user IDs", async () => {
     const members = [
       {

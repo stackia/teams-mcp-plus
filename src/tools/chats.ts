@@ -1143,12 +1143,12 @@ export function registerChatTools(
     "set_chat_message_reaction",
     {
       title: "Set Chat Message Reaction",
-      description:
-        "Add a reaction to a message in a chat conversation. Supports Unicode emoji characters and named reactions (like, angry, sad, laugh, heart, surprised).",
+      description: "Add or remove a reaction on a chat message.",
       inputSchema: {
         ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z.string().describe("Message ID to react to"),
+        action: z.enum(["add", "remove"]).optional().default("add").describe("Reaction action"),
         reactionType: z
           .string()
           .describe(
@@ -1162,20 +1162,21 @@ export function registerChatTools(
         openWorldHint: true,
       },
     },
-    async ({ tenantId, chatId, messageId, reactionType }) => {
+    async ({ tenantId, chatId, messageId, reactionType, action = "add" }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
+        const operation = action === "remove" ? "unsetReaction" : "setReaction";
         await client
-          .api(`/chats/${chatId}/messages/${messageId}/setReaction`)
+          .api(`/chats/${chatId}/messages/${messageId}/${operation}`)
           .post({ reactionType });
 
         return {
           content: [
             {
               type: "text" as const,
-              text: `✅ Reaction ${reactionType} added to message ${messageId}.`,
+              text: `✅ Reaction ${reactionType} ${action === "remove" ? "removed from" : "added to"} message ${messageId}.`,
             },
           ],
         };
@@ -1185,62 +1186,7 @@ export function registerChatTools(
           content: [
             {
               type: "text" as const,
-              text: `❌ Failed to set reaction: ${errorMessage}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  // Unset a reaction on a chat message
-  server.registerTool(
-    "unset_chat_message_reaction",
-    {
-      title: "Unset Chat Message Reaction",
-      description: "Remove a reaction from a message in a chat conversation.",
-      inputSchema: {
-        ...tenantInputSchema,
-        chatId: z.string().describe("Chat ID"),
-        messageId: z.string().describe("Message ID to remove reaction from"),
-        reactionType: z
-          .string()
-          .describe(
-            'Reaction type to remove - Unicode emoji (e.g., "👍") or named reaction (e.g., "like", "heart")'
-          ),
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    async ({ tenantId, chatId, messageId, reactionType }) => {
-      try {
-        const graphService = await graphServices.forTenant(tenantId);
-        const client = await graphService.getClient();
-
-        await client
-          .api(`/chats/${chatId}/messages/${messageId}/unsetReaction`)
-          .post({ reactionType });
-
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `✅ Reaction ${reactionType} removed from message ${messageId}.`,
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `❌ Failed to unset reaction: ${errorMessage}`,
+              text: `❌ Failed to ${action === "remove" ? "unset" : "set"} reaction: ${errorMessage}`,
             },
           ],
           isError: true,

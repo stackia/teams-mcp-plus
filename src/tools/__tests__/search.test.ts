@@ -1,6 +1,6 @@
 import type { Client } from "@microsoft/microsoft-graph-client";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphService } from "../../services/graph.js";
 import { formatSearchHits, registerSearchTools } from "../search.js";
 
@@ -54,22 +54,14 @@ describe("Search Tools", () => {
   });
 
   describe("registerSearchTools", () => {
-    it("should register search_messages and get_my_mentions", () => {
+    it("should register only search_messages", () => {
       registerSearchTools(mockServer, mockGraphService, false);
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(2);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(1);
       expect(mockServer.registerTool).toHaveBeenCalledWith(
         "search_messages",
         expect.objectContaining({
           title: "Search Messages",
-          description: expect.any(String),
-        }),
-        expect.any(Function)
-      );
-      expect(mockServer.registerTool).toHaveBeenCalledWith(
-        "get_my_mentions",
-        expect.objectContaining({
-          title: "Get My Mentions",
           description: expect.any(String),
         }),
         expect.any(Function)
@@ -204,7 +196,7 @@ describe("Search Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
 
       const result = await handler({ query: "nonexistent" });
-      expect(result.content[0].text).toBe("No messages found matching your search criteria.");
+      expect(JSON.parse(result.content[0].text).results).toEqual([]);
     });
 
     it("should handle empty hitsContainers", async () => {
@@ -214,7 +206,7 @@ describe("Search Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
 
       const result = await handler({ query: "nonexistent" });
-      expect(result.content[0].text).toBe("No messages found matching your search criteria.");
+      expect(JSON.parse(result.content[0].text).results).toEqual([]);
     });
 
     it("should return error message on API failure", async () => {
@@ -238,98 +230,97 @@ describe("Search Tools", () => {
     });
   });
 
-  describe("get_my_mentions", () => {
+  describe("mention and time filters", () => {
     let handler: (args: any) => Promise<any>;
-
+    let post: ReturnType<typeof vi.fn>;
     beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-23T12:30:00Z"));
       registerSearchTools(mockServer, mockGraphService, false);
-      const call = vi
-        .mocked(mockServer.registerTool)
-        .mock.calls.find(([name]) => name === "get_my_mentions");
-      handler = call?.[2] as unknown as (args: any) => Promise<any>;
+      handler = vi.mocked(mockServer.registerTool).mock.calls[0][2] as any;
+      post = vi.fn().mockResolvedValue(makeSearchResponse([]));
+      mockClient.api = vi.fn().mockReturnValue({ post });
     });
+    afterEach(() => vi.useRealTimers());
 
-    it("should query with IsMentioned:true and date filter", async () => {
-      const mockUser = { id: "currentuser123", displayName: "Current User" };
-      const mockApiChain = {
-        get: vi.fn().mockResolvedValue(mockUser),
-        post: vi.fn().mockResolvedValue(makeSearchResponse([makeHit()])),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
-
-      const result = await handler({ hours: 24, size: 25 });
-
-      expect(mockClient.api).toHaveBeenCalledWith("/me");
-      expect(mockClient.api).toHaveBeenCalledWith("/search/query");
-
-      // Verify the KQL query uses IsMentioned:true
-      const postCall = mockApiChain.post.mock.calls[0][0];
-      expect(postCall.requests[0].query.queryString).toContain("IsMentioned:true");
-      expect(postCall.requests[0].query.queryString).toContain("sent>=");
-      expect(postCall.requests[0].enableTopResults).toBe(false);
-
+    it("combines an OR query with mention and date constraints, without a /me lookup", async () => {
+      post.mockResolvedValue(
+        makeSearchResponse([makeHit({ createdDateTime: "2026-09-23T12:00:00Z" })])
+      );
+      const result = await handler({ query: "alpha OR beta", mentionsMe: true });
+      expect(mockClient.api).toHaveBeenCalledExactlyOnceWith("/search/query");
+      expect(post.mock.calls[0][0].requests[0]).toMatchObject({
+        query: { queryString: "(alpha OR beta) AND IsMentioned:true AND sent>=2026-09-22" },
+        enableTopResults: false,
+        from: 0,
+        size: 25,
+      });
       const parsed = JSON.parse(result.content[0].text);
-      expect(parsed.mentionedUser).toBe("Current User");
-      expect(parsed.mentions).toHaveLength(1);
-      expect(parsed.total).toBe(1);
+      expect(parsed.since).toBe("2026-09-22T12:30:00.000Z");
+      expect(parsed.results).toHaveLength(1);
+      expect(parsed).not.toHaveProperty("mentions");
     });
 
-    it("should return friendly message when no mentions found", async () => {
-      const mockApiChain = {
-        get: vi.fn().mockResolvedValue({ id: "user1" }),
-        post: vi.fn().mockResolvedValue({ value: [] }),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
-
-      const result = await handler({ hours: 24 });
-      expect(result.content[0].text).toBe("No recent mentions found.");
+    it("filters at the exact hour boundary and paginates by raw hits", async () => {
+      post.mockResolvedValue(
+        makeSearchResponse(
+          [
+            makeHit({ id: "too-old", createdDateTime: "2026-09-23T11:29:59Z" }),
+            makeHit({ id: "boundary", createdDateTime: "2026-09-23T11:30:00Z" }),
+            makeHit({ id: "recent", createdDateTime: "2026-09-23T12:29:59Z" }),
+            makeHit({ id: "unknown", createdDateTime: undefined }),
+            makeHit({ id: "invalid", createdDateTime: "invalid" }),
+          ],
+          5,
+          true
+        )
+      );
+      const result = await handler({ hours: 1, from: 10, size: 5 });
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.results.map((hit: any) => hit.id)).toEqual(["boundary", "recent"]);
+      expect(parsed.returned).toBe(2);
+      expect(parsed.total).toBe(5);
+      expect(parsed.nextFrom).toBe(15);
+      expect(parsed.moreResultsAvailable).toBe(true);
     });
 
-    it("should return friendly message when hits array is empty", async () => {
-      const mockApiChain = {
-        get: vi.fn().mockResolvedValue({ id: "user1" }),
-        post: vi.fn().mockResolvedValue(makeSearchResponse([])),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
-
-      const result = await handler({ hours: 24 });
-      expect(result.content[0].text).toBe("No recent mentions found.");
+    it("keeps pagination when an entire page falls outside the time range", async () => {
+      post.mockResolvedValue(makeSearchResponse([makeHit()], 1, true));
+      const parsed = JSON.parse((await handler({ mentionsMe: true, from: 4 })).content[0].text);
+      expect(parsed.results).toEqual([]);
+      expect(parsed.nextFrom).toBe(5);
+      expect(parsed.moreResultsAvailable).toBe(true);
     });
 
-    it("should error when current user ID cannot be resolved", async () => {
-      const mockApiChain = {
-        get: vi.fn().mockResolvedValue({}),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
-
-      const result = await handler({ hours: 24 });
-      expect(result.content[0].text).toBe("❌ Error: Could not determine current user ID");
+    it("supports a custom lookback and explicit ranking", async () => {
+      const parsed = JSON.parse(
+        (await handler({ mentionsMe: true, hours: 168, enableTopResults: true })).content[0].text
+      );
+      expect(parsed.since).toBe("2026-09-16T12:30:00.000Z");
+      expect(parsed.results).toEqual([]);
+      expect(parsed.nextFrom).toBeNull();
+      expect(post.mock.calls[0][0].requests[0].enableTopResults).toBe(true);
     });
 
-    it("should return error message on API failure", async () => {
-      const mockApiChain = {
-        get: vi.fn().mockRejectedValue(new Error("User lookup failed")),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
-
-      const result = await handler({ hours: 24 });
-      expect(result.content[0].text).toBe("❌ Error getting mentions: User lookup failed");
+    it("does not add a time restriction to ordinary queries", async () => {
+      const parsed = JSON.parse((await handler({ query: "test" })).content[0].text);
+      expect(parsed).not.toHaveProperty("since");
+      expect(post.mock.calls[0][0].requests[0]).toMatchObject({
+        query: { queryString: "test" },
+        enableTopResults: true,
+      });
     });
 
-    it("should respect hours parameter for date calculation", async () => {
-      const mockApiChain = {
-        get: vi.fn().mockResolvedValue({ id: "user1" }),
-        post: vi.fn().mockResolvedValue(makeSearchResponse([makeHit()])),
-      };
-      mockClient.api = vi.fn().mockReturnValue(mockApiChain);
+    it("rejects requests without a query or filter", async () => {
+      expect((await handler({})).isError).toBe(true);
+      expect(post).not.toHaveBeenCalled();
+    });
 
-      await handler({ hours: 168, size: 10 });
-
-      const postCall = mockApiChain.post.mock.calls[0][0];
-      // 168 hours = 7 days ago
-      const expectedDate = new Date(Date.now() - 168 * 60 * 60 * 1000).toISOString().split("T")[0];
-      expect(postCall.requests[0].query.queryString).toContain(`sent>=${expectedDate}`);
-      expect(postCall.requests[0].size).toBe(10);
+    it("surfaces mention-search failures", async () => {
+      post.mockRejectedValue(new Error("Graph search failed"));
+      const result = await handler({ mentionsMe: true });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Graph search failed");
     });
   });
 });

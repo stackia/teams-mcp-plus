@@ -32,13 +32,13 @@ import {
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { markdownToHtml } from "../utils/markdown.js";
 import { singleMessageResult } from "../utils/message-result.js";
-import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/users.js";
+import { processMentionsInHtml } from "../utils/users.js";
 
 /**
  * Registers all Teams-related MCP tools on the given server.
  * Tools include: list_teams, list_channels, get_channel_messages,
- * send_channel_message, get_channel_message_replies,
- * list_team_members, search_users_for_mentions, download_message_hosted_content,
+ * send_channel_message,
+ * list_team_members, download_message_hosted_content,
  * delete_channel_message, and update_channel_message.
  *
  * @param server - The MCP server instance to register tools on.
@@ -183,7 +183,7 @@ export function registerTeamsTools(
     "get_channel_messages",
     {
       title: "Get Channel Messages",
-      description: "List channel thread roots, or read one root or reply by ID.",
+      description: "Read channel messages or list thread roots and replies.",
       inputSchema: {
         ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
@@ -192,12 +192,17 @@ export function registerTeamsTools(
           .string()
           .min(1)
           .optional()
-          .describe("Read this thread root message; ignores limit."),
+          .describe("Thread root message ID. Reads the root unless listReplies or replyId is set."),
         replyId: z
           .string()
           .min(1)
           .optional()
           .describe("Read this reply within the thread identified by messageId."),
+        listReplies: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("List thread replies; requires messageId and excludes replyId."),
         limit: z
           .number()
           .min(1)
@@ -218,13 +223,24 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ tenantId, teamId, channelId, messageId, replyId, limit, contentFormat }) => {
+    async ({
+      tenantId,
+      teamId,
+      channelId,
+      messageId,
+      replyId,
+      listReplies = false,
+      limit = 20,
+      contentFormat,
+    }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
         if (replyId && !messageId) throw new Error("replyId requires messageId.");
-        if (messageId) {
+        if (listReplies && (!messageId || replyId))
+          throw new Error("listReplies requires messageId and cannot be combined with replyId.");
+        if (messageId && !listReplies) {
           let path = `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`;
           if (replyId) path += `/replies/${encodeURIComponent(replyId)}`;
           const message = (await client.api(path).get()) as ChatMessage;
@@ -236,47 +252,42 @@ export function registerTeamsTools(
         const queryParams: string[] = [`$top=${limit}`];
         const queryString = queryParams.join("&");
 
+        const path = `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages`;
+        const endpoint = listReplies
+          ? `${path}/${encodeURIComponent(messageId as string)}/replies`
+          : path;
         const response = (await client
-          .api(`/teams/${teamId}/channels/${channelId}/messages?${queryString}`)
+          .api(`${endpoint}?${queryString}`)
           .get()) as GraphApiResponse<ChatMessage>;
 
-        if (!response?.value?.length) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No messages found in this channel.",
-              },
-            ],
-          };
-        }
-
         const effectiveContentFormat = contentFormat ?? "markdown";
-        const messageList: MessageSummary[] = response.value.map((message: ChatMessage) => ({
-          id: message.id,
-          content: formatMessageContent(
-            message.body?.content,
-            effectiveContentFormat,
-            message.mentions
-          ),
-          from: message.from?.user?.displayName,
-          createdDateTime: message.createdDateTime,
-          importance: message.importance,
-          attachments: extractAttachmentSummaries(message.attachments),
-          reactions: message.reactions?.map(
-            (r: ChatMessageReaction): ReactionSummary => ({
-              reactionType: r.reactionType,
-              displayName: r.displayName,
-              createdDateTime: r.createdDateTime,
-            })
-          ),
-        }));
+        const messageList: MessageSummary[] = (response?.value ?? []).map(
+          (message: ChatMessage) => ({
+            id: message.id,
+            content: formatMessageContent(
+              message.body?.content,
+              effectiveContentFormat,
+              message.mentions
+            ),
+            from: message.from?.user?.displayName,
+            createdDateTime: message.createdDateTime,
+            importance: message.importance,
+            attachments: extractAttachmentSummaries(message.attachments),
+            reactions: message.reactions?.map(
+              (r: ChatMessageReaction): ReactionSummary => ({
+                reactionType: r.reactionType,
+                displayName: r.displayName,
+                createdDateTime: r.createdDateTime,
+              })
+            ),
+          })
+        );
 
-        // Sort messages by creation date (newest first) since API doesn't support orderby
+        // Thread roots are newest first; replies follow conversation order.
         messageList.sort((a, b) => {
           const dateA = new Date(a.createdDateTime || 0).getTime();
           const dateB = new Date(b.createdDateTime || 0).getTime();
-          return dateB - dateA;
+          return listReplies ? dateA - dateB : dateB - dateA;
         });
 
         return {
@@ -285,8 +296,9 @@ export function registerTeamsTools(
               type: "text",
               text: JSON.stringify(
                 {
+                  ...(listReplies ? { parentMessageId: messageId } : {}),
                   totalReturned: messageList.length,
-                  hasMore: !!response["@odata.nextLink"],
+                  hasMore: !!response?.["@odata.nextLink"],
                   messages: messageList,
                 },
                 null,
@@ -547,125 +559,6 @@ export function registerTeamsTools(
       }
     );
 
-  // Get replies to a message in a channel
-  server.registerTool(
-    "get_channel_message_replies",
-    {
-      title: "Get Channel Message Replies",
-      description: "List replies within a channel thread.",
-      inputSchema: {
-        ...tenantInputSchema,
-        teamId: z.string().describe("Team ID"),
-        channelId: z.string().describe("Channel ID"),
-        messageId: z.string().describe("Thread root message ID"),
-        limit: z
-          .number()
-          .min(1)
-          .max(50)
-          .optional()
-          .default(20)
-          .describe("Number of replies to retrieve (default: 20)"),
-        contentFormat: z
-          .enum(["raw", "markdown"])
-          .optional()
-          .default("markdown")
-          .describe(
-            'Format for message content. "markdown" (default) converts Teams HTML to clean Markdown optimized for LLMs. "raw" returns original HTML from Graph API.'
-          ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ tenantId, teamId, channelId, messageId, limit, contentFormat }) => {
-      try {
-        const graphService = await graphServices.forTenant(tenantId);
-        const client = await graphService.getClient();
-
-        // Only $top is supported for message replies
-        const queryParams: string[] = [`$top=${limit}`];
-        const queryString = queryParams.join("&");
-
-        const response = (await client
-          .api(
-            `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies?${queryString}`
-          )
-          .get()) as GraphApiResponse<ChatMessage>;
-
-        if (!response?.value?.length) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No replies found for this message.",
-              },
-            ],
-          };
-        }
-
-        const effectiveContentFormat = contentFormat ?? "markdown";
-        const repliesList: MessageSummary[] = response.value.map((reply: ChatMessage) => ({
-          id: reply.id,
-          content: formatMessageContent(
-            reply.body?.content,
-            effectiveContentFormat,
-            reply.mentions
-          ),
-          from: reply.from?.user?.displayName,
-          createdDateTime: reply.createdDateTime,
-          importance: reply.importance,
-          attachments: extractAttachmentSummaries(reply.attachments),
-          reactions: reply.reactions?.map(
-            (r: ChatMessageReaction): ReactionSummary => ({
-              reactionType: r.reactionType,
-              displayName: r.displayName,
-              createdDateTime: r.createdDateTime,
-            })
-          ),
-        }));
-
-        // Sort replies by creation date (oldest first for replies)
-        repliesList.sort((a, b) => {
-          const dateA = new Date(a.createdDateTime || 0).getTime();
-          const dateB = new Date(b.createdDateTime || 0).getTime();
-          return dateA - dateB;
-        });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  parentMessageId: messageId,
-                  totalReplies: repliesList.length,
-                  hasMore: !!response["@odata.nextLink"],
-                  replies: repliesList,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `❌ Error: ${errorMessage}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
   // List team members
   server.registerTool(
     "list_team_members",
@@ -714,85 +607,6 @@ export function registerTeamsTools(
             {
               type: "text",
               text: JSON.stringify(memberList, null, 2),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `❌ Error: ${errorMessage}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
-  // Search users for @mentions
-  server.registerTool(
-    "search_users_for_mentions",
-    {
-      title: "Search Users for Mentions",
-      description:
-        "Search for users to mention in messages. Returns users with their display names, email addresses, and mention IDs.",
-      inputSchema: {
-        ...tenantInputSchema,
-        query: z.string().describe("Search query (name or email)"),
-        limit: z
-          .number()
-          .min(1)
-          .max(50)
-          .optional()
-          .default(10)
-          .describe("Maximum number of results to return"),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true,
-      },
-    },
-    async ({ tenantId, query, limit }) => {
-      try {
-        const graphService = await graphServices.forTenant(tenantId);
-        const users = await searchUsers(graphService, query, limit);
-
-        if (users.length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `No users found matching "${query}".`,
-              },
-            ],
-          };
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  query,
-                  totalResults: users.length,
-                  users: users.map((user: UserInfo) => ({
-                    id: user.id,
-                    displayName: user.displayName,
-                    userPrincipalName: user.userPrincipalName,
-                    mentionText:
-                      user.userPrincipalName?.split("@")[0] ||
-                      user.displayName.toLowerCase().replace(/\s+/g, ""),
-                  })),
-                },
-                null,
-                2
-              ),
             },
           ],
         };
@@ -1282,13 +1096,13 @@ export function registerTeamsTools(
       "set_channel_message_reaction",
       {
         title: "Set Channel Message Reaction",
-        description:
-          "Add a reaction to a message in a Teams channel. Supports Unicode emoji characters and named reactions (like, angry, sad, laugh, heart, surprised). Can also react to replies.",
+        description: "Add or remove a reaction on a channel message or reply.",
         inputSchema: {
           ...tenantInputSchema,
           teamId: z.string().describe("Team ID"),
           channelId: z.string().describe("Channel ID"),
           messageId: z.string().describe("Thread root message ID"),
+          action: z.enum(["add", "remove"]).optional().default("add").describe("Reaction action"),
           reactionType: z
             .string()
             .describe(
@@ -1306,14 +1120,15 @@ export function registerTeamsTools(
           openWorldHint: true,
         },
       },
-      async ({ tenantId, teamId, channelId, messageId, reactionType, replyId }) => {
+      async ({ tenantId, teamId, channelId, messageId, reactionType, replyId, action = "add" }) => {
         try {
           const graphService = await graphServices.forTenant(tenantId);
           const client = await graphService.getClient();
 
+          const operation = action === "remove" ? "unsetReaction" : "setReaction";
           const endpoint = replyId
-            ? `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies/${replyId}/setReaction`
-            : `/teams/${teamId}/channels/${channelId}/messages/${messageId}/setReaction`;
+            ? `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies/${replyId}/${operation}`
+            : `/teams/${teamId}/channels/${channelId}/messages/${messageId}/${operation}`;
 
           await client.api(endpoint).post({ reactionType });
 
@@ -1324,7 +1139,7 @@ export function registerTeamsTools(
             content: [
               {
                 type: "text" as const,
-                text: `✅ Reaction ${reactionType} added to ${targetType} ${targetId}.`,
+                text: `✅ Reaction ${reactionType} ${action === "remove" ? "removed from" : "added to"} ${targetType} ${targetId}.`,
               },
             ],
           };
@@ -1334,76 +1149,7 @@ export function registerTeamsTools(
             content: [
               {
                 type: "text" as const,
-                text: `❌ Failed to set reaction: ${errorMessage}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
-    );
-
-  // Unset a reaction on a channel message (write — skipped in read-only mode)
-  if (!readOnly)
-    server.registerTool(
-      "unset_channel_message_reaction",
-      {
-        title: "Unset Channel Message Reaction",
-        description:
-          "Remove a reaction from a message in a Teams channel. Can also remove reactions from replies.",
-        inputSchema: {
-          ...tenantInputSchema,
-          teamId: z.string().describe("Team ID"),
-          channelId: z.string().describe("Channel ID"),
-          messageId: z.string().describe("Thread root message ID"),
-          reactionType: z
-            .string()
-            .describe(
-              'Reaction type to remove - Unicode emoji (e.g., "👍") or named reaction (e.g., "like", "heart")'
-            ),
-          replyId: z
-            .string()
-            .optional()
-            .describe(
-              "Reply ID within the thread. Omit to remove the reaction from the root message."
-            ),
-        },
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: true,
-        },
-      },
-      async ({ tenantId, teamId, channelId, messageId, reactionType, replyId }) => {
-        try {
-          const graphService = await graphServices.forTenant(tenantId);
-          const client = await graphService.getClient();
-
-          const endpoint = replyId
-            ? `/teams/${teamId}/channels/${channelId}/messages/${messageId}/replies/${replyId}/unsetReaction`
-            : `/teams/${teamId}/channels/${channelId}/messages/${messageId}/unsetReaction`;
-
-          await client.api(endpoint).post({ reactionType });
-
-          const targetId = replyId || messageId;
-          const targetType = replyId ? "reply" : "message";
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `✅ Reaction ${reactionType} removed from ${targetType} ${targetId}.`,
-              },
-            ],
-          };
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `❌ Failed to unset reaction: ${errorMessage}`,
+                text: `❌ Failed to ${action === "remove" ? "unset" : "set"} reaction: ${errorMessage}`,
               },
             ],
             isError: true,

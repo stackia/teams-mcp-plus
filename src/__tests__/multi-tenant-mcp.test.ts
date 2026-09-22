@@ -57,18 +57,72 @@ describe("MCP tenant routing", () => {
     await client.connect(clientTransport);
     try {
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(32);
+      expect(tools).toHaveLength(26);
+      for (const name of [
+        "get_current_user",
+        "search_users_for_mentions",
+        "get_my_mentions",
+        "get_channel_message_replies",
+        "unset_chat_message_reaction",
+        "unset_channel_message_reaction",
+      ]) {
+        expect(
+          tools.some((tool) => tool.name === name),
+          name
+        ).toBe(false);
+      }
       expect(tools.some((tool) => tool.name === "reply_to_channel_message")).toBe(false);
       for (const tool of tools.filter((t) => t.name !== "list_tenants")) {
         expect(tool.inputSchema.properties).toHaveProperty("tenantId");
         expect(tool.inputSchema.required ?? []).not.toContain("tenantId");
       }
       const [a, b] = await Promise.all([
-        client.callTool({ name: "get_current_user", arguments: { tenantId: TENANT_A } }),
-        client.callTool({ name: "get_current_user", arguments: { tenantId: TENANT_B } }),
+        client.callTool({ name: "get_user", arguments: { tenantId: TENANT_A } }),
+        client.callTool({ name: "get_user", arguments: { tenantId: TENANT_B } }),
       ]);
       expect(JSON.parse((a.content as any)[0].text).id).toBe(TENANT_A);
       expect(JSON.parse((b.content as any)[0].text).id).toBe(TENANT_B);
+      const removedReaction = await client.callTool({
+        name: "set_chat_message_reaction",
+        arguments: {
+          tenantId: TENANT_B,
+          chatId: "chat-b",
+          messageId: "message-b",
+          reactionType: "👍",
+          action: "remove",
+        },
+      });
+      expect(removedReaction.isError).toBeFalsy();
+      expect(clients.get(TENANT_B).api).toHaveBeenLastCalledWith(
+        "/chats/chat-b/messages/message-b/unsetReaction"
+      );
+      const removedReplyReaction = await client.callTool({
+        name: "set_channel_message_reaction",
+        arguments: {
+          tenantId: TENANT_A,
+          teamId: "team-a",
+          channelId: "channel-a",
+          messageId: "root",
+          replyId: "reply",
+          reactionType: "like",
+          action: "remove",
+        },
+      });
+      expect(removedReplyReaction.isError).toBeFalsy();
+      expect(clients.get(TENANT_A).api).toHaveBeenLastCalledWith(
+        "/teams/team-a/channels/channel-a/messages/root/replies/reply/unsetReaction"
+      );
+      const invalidAction = await client.callTool({
+        name: "set_chat_message_reaction",
+        arguments: {
+          tenantId: TENANT_B,
+          chatId: "chat-b",
+          messageId: "message-b",
+          reactionType: "👍",
+          action: "toggle",
+        },
+      });
+      expect(invalidAction.isError).toBe(true);
       const ambiguous = await client.callTool({ name: "list_teams", arguments: {} });
       expect(ambiguous.isError).toBe(true);
       const invalid = await client.callTool({

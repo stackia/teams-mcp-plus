@@ -9,69 +9,16 @@ export function registerUsersTools(
   graphServices: GraphService,
   _readOnly: boolean
 ) {
-  // Get current user
-  server.registerTool(
-    "get_current_user",
-    {
-      title: "Get Current User",
-      description:
-        "Get the current authenticated user's profile information including display name, email, job title, and department.",
-      inputSchema: { ...tenantInputSchema },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ tenantId } = { tenantId: undefined }) => {
-      try {
-        const graphService = await graphServices.forTenant(tenantId);
-        const client = await graphService.getClient();
-        const user = (await client.api("/me").get()) as User;
-
-        const userSummary: UserSummary = {
-          displayName: user.displayName,
-          userPrincipalName: user.userPrincipalName,
-          mail: user.mail,
-          id: user.id,
-          jobTitle: user.jobTitle,
-          department: user.department,
-        };
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(userSummary, null, 2),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `❌ Error: ${errorMessage}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
   // Search users
   server.registerTool(
     "search_users",
     {
       title: "Search Users",
-      description:
-        "Search for users in the organization by name or email address. Returns matching users with their basic profile information.",
+      description: "Search tenant users by name or email, including IDs and mention text.",
       inputSchema: {
         ...tenantInputSchema,
-        query: z.string().describe("Search query (name or email)"),
+        query: z.string().trim().min(1).describe("Name or email prefix"),
+        limit: z.number().int().min(1).max(50).optional().default(10).describe("Maximum users"),
       },
       annotations: {
         readOnlyHint: true,
@@ -80,33 +27,29 @@ export function registerUsersTools(
         openWorldHint: true,
       },
     },
-    async ({ tenantId, query }) => {
+    async ({ tenantId, query, limit = 10 }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
+        const escapedQuery = query.replaceAll("'", "''");
         const response = (await client
           .api("/users")
           .filter(
-            `startswith(displayName,'${query}') or startswith(mail,'${query}') or startswith(userPrincipalName,'${query}')`
+            `startswith(displayName,'${escapedQuery}') or startswith(mail,'${escapedQuery}') or startswith(userPrincipalName,'${escapedQuery}')`
           )
+          .top(limit)
+          .select("id,displayName,userPrincipalName,mail")
           .get()) as GraphApiResponse<User>;
 
-        if (!response?.value?.length) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "No users found matching your search.",
-              },
-            ],
-          };
-        }
-
-        const userList: UserSummary[] = response.value.map((user: User) => ({
+        const userList = (response?.value ?? []).slice(0, limit).map((user: User) => ({
           displayName: user.displayName,
           userPrincipalName: user.userPrincipalName,
           mail: user.mail,
           id: user.id,
+          mentionText:
+            user.userPrincipalName?.split("@")[0] ||
+            user.displayName?.toLowerCase().replace(/\s+/g, "") ||
+            user.id,
         }));
 
         return {
@@ -137,11 +80,10 @@ export function registerUsersTools(
     "get_user",
     {
       title: "Get User",
-      description:
-        "Get detailed information about a specific user by their ID or email address. Returns profile information including name, email, job title, and department.",
+      description: "Get a user profile; defaults to the current user.",
       inputSchema: {
         ...tenantInputSchema,
-        userId: z.string().describe("User ID or email address"),
+        userId: z.string().min(1).optional().describe("User ID or UPN. Omit for the current user."),
       },
       annotations: {
         readOnlyHint: true,
@@ -150,11 +92,13 @@ export function registerUsersTools(
         openWorldHint: false,
       },
     },
-    async ({ tenantId, userId }) => {
+    async ({ tenantId, userId } = { tenantId: undefined, userId: undefined }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
-        const user = (await client.api(`/users/${userId}`).get()) as User;
+        const user = (await client
+          .api(userId ? `/users/${encodeURIComponent(userId)}` : "/me")
+          .get()) as User;
 
         const userSummary: UserSummary = {
           displayName: user.displayName,

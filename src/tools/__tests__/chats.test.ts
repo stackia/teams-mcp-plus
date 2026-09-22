@@ -40,7 +40,7 @@ describe("Chat Tools", () => {
     it("should register all chat tools", () => {
       registerChatTools(mockServer, mockGraphService, false);
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(12);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(11);
       expect(mockServer.registerTool).toHaveBeenCalledWith(
         "list_chats",
         expect.any(Object),
@@ -73,11 +73,6 @@ describe("Chat Tools", () => {
       );
       expect(mockServer.registerTool).toHaveBeenCalledWith(
         "set_chat_message_reaction",
-        expect.any(Object),
-        expect.any(Function)
-      );
-      expect(mockServer.registerTool).toHaveBeenCalledWith(
-        "unset_chat_message_reaction",
         expect.any(Object),
         expect.any(Function)
       );
@@ -1429,14 +1424,14 @@ describe("Chat Tools", () => {
     });
   });
 
-  describe("unset_chat_message_reaction", () => {
+  describe("set_chat_message_reaction remove", () => {
     let unsetReactionHandler: (args?: any) => Promise<any>;
 
     beforeEach(() => {
       registerChatTools(mockServer, mockGraphService, false);
       const call = vi
         .mocked(mockServer.registerTool)
-        .mock.calls.find(([name]) => name === "unset_chat_message_reaction");
+        .mock.calls.find(([name]) => name === "set_chat_message_reaction");
       unsetReactionHandler = call?.[2] as unknown as (args?: any) => Promise<any>;
     });
 
@@ -1447,6 +1442,7 @@ describe("Chat Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
 
       const result = await unsetReactionHandler({
+        action: "remove",
         chatId: "chat123",
         messageId: "msg456",
         reactionType: "like",
@@ -1464,6 +1460,7 @@ describe("Chat Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
 
       const result = await unsetReactionHandler({
+        action: "remove",
         chatId: "chat123",
         messageId: "msg456",
         reactionType: "like",

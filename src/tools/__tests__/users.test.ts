@@ -14,6 +14,8 @@ describe("Users Tools", () => {
       api: vi.fn().mockReturnValue({
         get: vi.fn(),
         filter: vi.fn().mockReturnThis(),
+        top: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
       }),
     };
 
@@ -25,17 +27,16 @@ describe("Users Tools", () => {
     vi.clearAllMocks();
   });
 
-  describe("get_current_user tool", () => {
-    it("should register get_current_user tool correctly", () => {
+  describe("get_user tool", () => {
+    it("should register get_user tool correctly", () => {
       registerUsersTools(mockServer, mockGraphService, false);
 
       expect(mockServer.registerTool).toHaveBeenCalledWith(
-        "get_current_user",
+        "get_user",
         expect.objectContaining({
-          title: "Get Current User",
-          description:
-            "Get the current authenticated user's profile information including display name, email, job title, and department.",
-          inputSchema: { tenantId: expect.any(Object) },
+          title: "Get User",
+          description: "Get a user profile; defaults to the current user.",
+          inputSchema: { tenantId: expect.any(Object), userId: expect.any(Object) },
           annotations: expect.objectContaining({
             readOnlyHint: true,
             destructiveHint: false,
@@ -49,7 +50,7 @@ describe("Users Tools", () => {
       mockClient.api().get.mockResolvedValue(mockUser);
       registerUsersTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_current_user");
+      const tool = mockServer.getTool("get_user");
       const result = await tool.handler();
 
       expect(mockClient.api).toHaveBeenCalledWith("/me");
@@ -65,6 +66,7 @@ describe("Users Tools", () => {
                 id: mockUser.id,
                 jobTitle: mockUser.jobTitle,
                 department: mockUser.department,
+                officeLocation: mockUser.officeLocation,
               },
               null,
               2
@@ -78,7 +80,7 @@ describe("Users Tools", () => {
       mockClient.api().get.mockRejectedValue(new Error("API Error"));
       registerUsersTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_current_user");
+      const tool = mockServer.getTool("get_user");
       const result = await tool.handler();
 
       expect(result).toEqual({
@@ -96,7 +98,7 @@ describe("Users Tools", () => {
       mockClient.api().get.mockRejectedValue("String error");
       registerUsersTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_current_user");
+      const tool = mockServer.getTool("get_user");
       const result = await tool.handler();
 
       expect(result).toEqual({
@@ -147,6 +149,7 @@ describe("Users Tools", () => {
                   userPrincipalName: mockUser.userPrincipalName,
                   mail: mockUser.mail,
                   id: mockUser.id,
+                  mentionText: "test.user",
                 },
               ],
               null,
@@ -172,7 +175,7 @@ describe("Users Tools", () => {
         content: [
           {
             type: "text",
-            text: "No users found matching your search.",
+            text: "[]",
           },
         ],
       });
@@ -191,7 +194,7 @@ describe("Users Tools", () => {
         content: [
           {
             type: "text",
-            text: "No users found matching your search.",
+            text: "[]",
           },
         ],
       });
@@ -275,7 +278,7 @@ describe("Users Tools", () => {
       const tool = mockServer.getTool("get_user");
       const result = await tool.handler({ userId: "test.user@example.com" });
 
-      expect(mockClient.api).toHaveBeenCalledWith("/users/test.user@example.com");
+      expect(mockClient.api).toHaveBeenCalledWith("/users/test.user%40example.com");
       expect(result.content[0].text).toContain(mockUser.displayName);
     });
 
@@ -331,7 +334,7 @@ describe("Users Tools", () => {
       mockGraphService.getClient.mockRejectedValue(authError);
       registerUsersTools(mockServer, mockGraphService, false);
 
-      const tools = ["get_current_user", "search_users", "get_user"];
+      const tools = ["get_user", "search_users"];
 
       for (const toolName of tools) {
         const tool = mockServer.getTool(toolName);
@@ -349,26 +352,38 @@ describe("Users Tools", () => {
   });
 
   describe("input validation", () => {
-    it("should handle empty search query", async () => {
-      mockClient.api().get.mockResolvedValue({ value: [] });
+    it("rejects empty search and user IDs while allowing an omitted user ID", () => {
       registerUsersTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("search_users");
-      const result = await tool.handler({ query: "" });
-
-      expect(mockClient.api().filter).toHaveBeenCalledWith(
-        "startswith(displayName,'') or startswith(mail,'') or startswith(userPrincipalName,'')"
-      );
-      expect(result.content[0].text).toBe("No users found matching your search.");
+      expect(mockServer.getTool("search_users").schema.query.safeParse("").success).toBe(false);
+      expect(mockServer.getTool("get_user").schema.userId.safeParse("").success).toBe(false);
+      expect(mockServer.getTool("get_user").schema.userId.safeParse(undefined).success).toBe(true);
     });
 
-    it("should handle empty userId", async () => {
+    it("escapes apostrophes, limits results and supplies mention text", async () => {
+      mockClient.api().get.mockResolvedValue({
+        value: [
+          {
+            id: "one",
+            displayName: "O'Brien",
+            mail: "a@example.com",
+            userPrincipalName: "obrien@example.com",
+          },
+          { id: "two", displayName: "Jane Smith" },
+          { id: "three" },
+        ],
+      });
       registerUsersTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("get_user");
-      const _result = await tool.handler({ userId: "" });
-
-      expect(mockClient.api).toHaveBeenCalledWith("/users/");
+      const result = await mockServer
+        .getTool("search_users")
+        .handler({ query: "O'Brien", limit: 2 });
+      expect(mockClient.api().filter).toHaveBeenCalledWith(
+        "startswith(displayName,'O''Brien') or startswith(mail,'O''Brien') or startswith(userPrincipalName,'O''Brien')"
+      );
+      expect(mockClient.api().top).toHaveBeenCalledWith(2);
+      const users = JSON.parse(result.content[0].text);
+      expect(users).toHaveLength(2);
+      expect(users[0]).toMatchObject({ id: "one", mail: "a@example.com", mentionText: "obrien" });
+      expect(users[1].mentionText).toBe("janesmith");
     });
   });
 });

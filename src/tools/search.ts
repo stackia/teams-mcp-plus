@@ -41,53 +41,52 @@ export function registerSearchTools(
     "search_messages",
     {
       title: "Search Messages",
-      description: [
-        "Search for messages across all Microsoft Teams channels and chats using the Microsoft Search API.",
-        "The query string supports KQL (Keyword Query Language) syntax for advanced filtering:",
-        "  from:<name>              — messages sent by a person (e.g. from:bob)",
-        "  to:<name>                — messages sent to a person",
-        "  mentions:<userId>        — messages that mention a specific user ID (without dashes)",
-        "  IsMentioned:true         — messages that mention the current user",
-        "  hasAttachment:true|false — filter by attachment presence",
-        "  IsRead:true|false        — filter by read status",
-        "  sent>=YYYY-MM-DD         — messages sent on or after a date",
-        "  sent<=YYYY-MM-DD         — messages sent on or before a date",
-        "Examples:",
-        '  "quarterly report" from:alice sent>=2025-01-01',
-        "  hasAttachment:true from:bob",
-        "  project update sent>=2025-02-01",
-        "Use get_chat_messages or get_channel_messages for browsing a specific conversation.",
-      ].join("\n"),
+      description: "Search Teams messages with KQL and optional mention or time filters.",
       inputSchema: {
         ...tenantInputSchema,
         query: z
           .string()
-          .describe("Search query string. Supports KQL syntax (see tool description)"),
+          .trim()
+          .min(1)
+          .optional()
+          .describe("KQL query; optional with mentionsMe or hours."),
+        mentionsMe: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Only messages mentioning the current user."),
+        hours: z
+          .number()
+          .min(1)
+          .max(168)
+          .optional()
+          .describe(
+            "Look back this many hours; defaults to 24 with mentionsMe, otherwise unlimited."
+          ),
         from: z
           .number()
+          .int()
           .min(0)
           .optional()
           .default(0)
-          .describe("Offset for pagination (0-based). Use with size to paginate through results"),
+          .describe("Search offset; use nextFrom for the next page."),
         size: z
           .number()
+          .int()
           .min(1)
           .max(100)
           .optional()
           .default(25)
-          .describe("Number of results to return (max 100)"),
+          .describe("Search page size before time filtering."),
         enableTopResults: z
           .boolean()
           .optional()
-          .default(true)
-          .describe("When true, results are ranked by relevance. When false, results are unranked"),
+          .describe("Rank by relevance; defaults to false with mentionsMe, otherwise true."),
         contentFormat: z
           .enum(["raw", "markdown"])
           .optional()
           .default("markdown")
-          .describe(
-            'Format for message content. "markdown" (default) converts Teams HTML to clean Markdown optimized for LLMs. "raw" returns original HTML from Graph API.'
-          ),
+          .describe("Markdown or original message body."),
       },
       annotations: {
         readOnlyHint: true,
@@ -96,42 +95,66 @@ export function registerSearchTools(
         openWorldHint: true,
       },
     },
-    async ({ tenantId, query, from, size, enableTopResults, contentFormat }) => {
+    async ({
+      tenantId,
+      query,
+      mentionsMe = false,
+      hours,
+      from = 0,
+      size = 25,
+      enableTopResults,
+      contentFormat,
+    }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
-
+        if (!query?.trim() && !mentionsMe && hours === undefined) {
+          throw new Error("Provide query, mentionsMe or hours.");
+        }
+        const lookback = hours ?? (mentionsMe ? 24 : undefined);
+        const now = Date.now();
+        const since =
+          lookback === undefined ? undefined : new Date(now - lookback * 3600000).toISOString();
+        const clauses: string[] = [];
+        if (query) clauses.push(mentionsMe || since ? `(${query})` : query);
+        if (mentionsMe) clauses.push("IsMentioned:true");
+        if (since) clauses.push(`sent>=${since.split("T")[0]}`);
+        const queryString = clauses.join(" AND ");
         const searchRequest: SearchRequest = {
           entityTypes: ["chatMessage"],
-          query: { queryString: query },
+          query: { queryString },
           from,
           size,
-          enableTopResults,
+          enableTopResults: enableTopResults ?? !mentionsMe,
         };
-
         const response = (await client
           .api("/search/query")
           .post({ requests: [searchRequest] })) as SearchResponse;
-
         const container = response?.value?.[0]?.hitsContainers?.[0];
-        if (!container?.hits?.length) {
-          return {
-            content: [{ type: "text", text: "No messages found matching your search criteria." }],
-          };
-        }
-
+        const hits = container?.hits ?? [];
+        // Teams documents date-level KQL. Enforce exact hours on each returned page.
+        const filtered = since
+          ? hits.filter((hit) => {
+              const timestamp = Date.parse(hit.resource.createdDateTime ?? "");
+              return timestamp >= Date.parse(since) && timestamp <= now;
+            })
+          : hits;
+        const moreResultsAvailable = container?.moreResultsAvailable ?? false;
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify(
                 {
-                  query,
+                  query: queryString,
                   from,
                   size,
-                  total: container.total,
-                  moreResultsAvailable: container.moreResultsAvailable,
-                  results: formatSearchHits(container.hits, contentFormat ?? "markdown"),
+                  total: container?.total ?? 0,
+                  returned: filtered.length,
+                  ...(since ? { since } : {}),
+                  moreResultsAvailable,
+                  nextFrom: moreResultsAvailable ? from + (hits.length || size) : null,
+                  results: formatSearchHits(filtered, contentFormat ?? "markdown"),
                 },
                 null,
                 2
@@ -144,104 +167,6 @@ export function registerSearchTools(
         return {
           isError: true,
           content: [{ type: "text", text: `❌ Error searching messages: ${errorMessage}` }],
-        };
-      }
-    }
-  );
-
-  server.registerTool(
-    "get_my_mentions",
-    {
-      title: "Get My Mentions",
-      description:
-        "Find recent messages where the current user was @mentioned across all Teams channels and chats.",
-      inputSchema: {
-        ...tenantInputSchema,
-        hours: z
-          .number()
-          .min(1)
-          .max(168)
-          .optional()
-          .default(24)
-          .describe("Look back this many hours (max 168 = 1 week)"),
-        size: z
-          .number()
-          .min(1)
-          .max(100)
-          .optional()
-          .default(25)
-          .describe("Maximum number of mentions to return"),
-        contentFormat: z
-          .enum(["raw", "markdown"])
-          .optional()
-          .default("markdown")
-          .describe(
-            'Format for message content. "markdown" (default) converts Teams HTML to clean Markdown optimized for LLMs. "raw" returns original HTML from Graph API.'
-          ),
-      },
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    async ({ tenantId, hours, size, contentFormat }) => {
-      try {
-        const graphService = await graphServices.forTenant(tenantId);
-        const client = await graphService.getClient();
-
-        // Resolve current user
-        const me = await client.api("/me").get();
-        const userId = me?.id;
-        if (!userId) {
-          return {
-            content: [{ type: "text", text: "❌ Error: Could not determine current user ID" }],
-          };
-        }
-
-        const sinceDate = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString().split("T")[0];
-
-        const searchRequest: SearchRequest = {
-          entityTypes: ["chatMessage"],
-          query: { queryString: `IsMentioned:true sent>=${sinceDate}` },
-          from: 0,
-          size,
-          enableTopResults: false,
-        };
-
-        const response = (await client
-          .api("/search/query")
-          .post({ requests: [searchRequest] })) as SearchResponse;
-
-        const container = response?.value?.[0]?.hitsContainers?.[0];
-        if (!container?.hits?.length) {
-          return { content: [{ type: "text", text: "No recent mentions found." }] };
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  timeRange: `Last ${hours} hours`,
-                  mentionedUser: me?.displayName || "Current User",
-                  total: container.total,
-                  moreResultsAvailable: container.moreResultsAvailable,
-                  mentions: formatSearchHits(container.hits, contentFormat ?? "markdown"),
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-        return {
-          isError: true,
-          content: [{ type: "text", text: `❌ Error getting mentions: ${errorMessage}` }],
         };
       }
     }

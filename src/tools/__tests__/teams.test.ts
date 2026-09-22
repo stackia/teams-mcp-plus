@@ -55,11 +55,9 @@ describe("Teams Tools", () => {
       expect(registeredTools).toContain("list_teams");
       expect(registeredTools).toContain("list_channels");
       expect(registeredTools).toContain("get_channel_messages");
-      expect(registeredTools).toContain("get_channel_message_replies");
       expect(registeredTools).toContain("list_team_members");
-      expect(registeredTools).toContain("search_users_for_mentions");
       expect(registeredTools).toContain("download_message_hosted_content");
-      expect(registeredTools).toHaveLength(7);
+      expect(registeredTools).toHaveLength(5);
 
       // Write tools should NOT be registered
       expect(registeredTools).not.toContain("send_channel_message");
@@ -71,11 +69,11 @@ describe("Teams Tools", () => {
       expect(registeredTools).not.toContain("send_file_to_channel");
     });
 
-    it("should register all 13 tools when readOnly is false", () => {
+    it("should register all 10 tools when readOnly is false", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
 
       const registeredTools = mockServer.getAllTools();
-      expect(registeredTools).toHaveLength(13);
+      expect(registeredTools).toHaveLength(10);
     });
   });
 
@@ -313,7 +311,7 @@ describe("Teams Tools", () => {
         channelId: "test-channel-id",
       });
 
-      expect(result.content[0].text).toBe("No messages found in this channel.");
+      expect(JSON.parse(result.content[0].text).messages).toEqual([]);
     });
 
     it("should sort messages by creation date (newest first)", async () => {
@@ -610,11 +608,11 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("get_channel_message_replies tool", () => {
-    it("should register get_channel_message_replies tool with correct schema", () => {
+  describe("get_channel_messages tool", () => {
+    it("should register get_channel_messages tool with correct schema", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_channel_message_replies");
+      const tool = mockServer.getTool("get_channel_messages");
       expect(tool).toBeDefined();
       expect(tool.schema.teamId).toBeDefined();
       expect(tool.schema.channelId).toBeDefined();
@@ -630,8 +628,9 @@ describe("Teams Tools", () => {
       mockClient.api().get.mockResolvedValue(repliesResponse);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_channel_message_replies");
+      const tool = mockServer.getTool("get_channel_messages");
       const result = await tool.handler({
+        listReplies: true,
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "test-message-id",
@@ -644,30 +643,32 @@ describe("Teams Tools", () => {
 
       const response = JSON.parse(result.content[0].text);
       expect(response.parentMessageId).toBe("test-message-id");
-      expect(response.totalReplies).toBe(1);
-      expect(response.replies).toHaveLength(1);
+      expect(response.totalReturned).toBe(1);
+      expect(response.messages).toHaveLength(1);
     });
 
     it("should handle no replies found", async () => {
       mockClient.api().get.mockResolvedValue({ value: [] });
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_channel_message_replies");
+      const tool = mockServer.getTool("get_channel_messages");
       const result = await tool.handler({
+        listReplies: true,
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "test-message-id",
       });
 
-      expect(result.content[0].text).toBe("No replies found for this message.");
+      expect(JSON.parse(result.content[0].text).messages).toEqual([]);
     });
 
     it("should handle get replies errors", async () => {
       mockClient.api().get.mockRejectedValue(new Error("Message not found"));
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("get_channel_message_replies");
+      const tool = mockServer.getTool("get_channel_messages");
       const result = await tool.handler({
+        listReplies: true,
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "invalid-message-id",
@@ -1305,66 +1306,6 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("search_users_for_mentions tool", () => {
-    it("should register search_users_for_mentions tool with correct schema", () => {
-      registerTeamsTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("search_users_for_mentions");
-      expect(tool).toBeDefined();
-      expect(tool.schema.query).toBeDefined();
-      expect(tool.schema.limit).toBeDefined();
-    });
-
-    it("should search for users", async () => {
-      const usersResponse = {
-        value: [
-          {
-            id: "user-1",
-            displayName: "John Doe",
-            userPrincipalName: "john.doe@example.com",
-          },
-          {
-            id: "user-2",
-            displayName: "Jane Smith",
-            userPrincipalName: "jane.smith@example.com",
-          },
-        ],
-      };
-
-      mockClient.api().get.mockResolvedValue(usersResponse);
-      registerTeamsTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("search_users_for_mentions");
-      const result = await tool.handler({ query: "john" });
-
-      const response = JSON.parse(result.content[0].text);
-      expect(response.totalResults).toBe(2);
-      expect(response.users[0].displayName).toBe("John Doe");
-      expect(response.users[0].mentionText).toBe("john.doe");
-    });
-
-    it("should handle no users found", async () => {
-      mockClient.api().get.mockResolvedValue({ value: [] });
-      registerTeamsTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("search_users_for_mentions");
-      const result = await tool.handler({ query: "nonexistent" });
-
-      expect(result.content[0].text).toContain('No users found matching "nonexistent"');
-    });
-
-    it("should handle search errors gracefully", async () => {
-      mockClient.api().get.mockRejectedValue(new Error("Search failed"));
-      registerTeamsTools(mockServer, mockGraphService, false);
-
-      const tool = mockServer.getTool("search_users_for_mentions");
-      const result = await tool.handler({ query: "test" });
-
-      // searchUsers catches errors and returns empty array, so "No users found" is expected
-      expect(result.content[0].text).toContain('No users found matching "test"');
-    });
-  });
-
   describe("download_message_hosted_content tool", () => {
     it("should register download_message_hosted_content tool with correct schema", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
@@ -1527,7 +1468,7 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("unset_channel_message_reaction tool", () => {
+  describe("set_channel_message_reaction tool", () => {
     it("should unset a reaction on a channel message", async () => {
       const mockApiChain = {
         post: vi.fn().mockResolvedValue(undefined),
@@ -1536,8 +1477,9 @@ describe("Teams Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("unset_channel_message_reaction");
+      const tool = mockServer.getTool("set_channel_message_reaction");
       const result = await tool.handler({
+        action: "remove",
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "msg-123",
@@ -1559,8 +1501,9 @@ describe("Teams Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("unset_channel_message_reaction");
+      const tool = mockServer.getTool("set_channel_message_reaction");
       const result = await tool.handler({
+        action: "remove",
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "msg-123",
@@ -1583,8 +1526,9 @@ describe("Teams Tools", () => {
       mockClient.api = vi.fn().mockReturnValue(mockApiChain);
       registerTeamsTools(mockServer, mockGraphService, false);
 
-      const tool = mockServer.getTool("unset_channel_message_reaction");
+      const tool = mockServer.getTool("set_channel_message_reaction");
       const result = await tool.handler({
+        action: "remove",
         teamId: "test-team-id",
         channelId: "test-channel-id",
         messageId: "msg-123",

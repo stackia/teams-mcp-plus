@@ -166,9 +166,7 @@ Messages retrieved from the Microsoft Graph API are returned as raw HTML contain
 
 - `get_chat_messages`
 - `get_channel_messages`
-- `get_channel_message_replies`
 - `search_messages`
-- `get_my_mentions`
 
 ### Content Format Options
 
@@ -429,11 +427,11 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 ```
 
-**Read-only tools (18):**
-`list_tenants`, `auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `list_chat_members`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
+**Read-only tools (14):**
+`list_tenants`, `auth_status`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `list_team_members`, `download_message_hosted_content`, `list_chats`, `list_chat_members`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`
 
-**Write tools disabled in read-only mode (14):**
-`set_chat_read_state`, `send_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
+**Write tools disabled in read-only mode (12):**
+`set_chat_read_state`, `send_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `set_chat_message_reaction`
 
 ### Available MCP Tools
 
@@ -442,20 +440,17 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 - `auth_status` - Check current authentication status
 
 #### User Operations
-- `get_current_user` - Get authenticated user information
-- `search_users` - Search for users by name or email
-- `get_user` - Get detailed user information by ID or email
+- `search_users` - Search tenant users by name or email, returning IDs, email addresses and `mentionText`; `limit` defaults to 10 (max 50)
+- `get_user` - Get a user by ID or UPN; omit `userId` for the current user
 
 #### Teams Operations
 - `list_teams` - List user's joined teams
 - `list_channels` - List channels in a specific team
-- `get_channel_messages` - List thread roots, or pass `messageId` to read one root; add `replyId` to read a reply within that thread
-- `get_channel_message_replies` - List replies within the thread identified by its root `messageId`
+- `get_channel_messages` - List thread roots, read a root with `messageId`, read a reply with `replyId`, or list thread replies with `messageId` and `listReplies: true`
 - `send_channel_message` - Start a new thread, or pass `replyToMessageId` (the thread root ID) to reply within an existing thread
 - `update_channel_message` - Edit a previously sent channel message or reply
 - `delete_channel_message` - Soft delete a channel message or reply
 - `list_team_members` - List members of a specific team
-- `search_users_for_mentions` - Search for team members to @mention in messages
 - `send_file_to_channel` - Post a file in a new thread, or pass the root `messageId` to reply in an existing thread
 
 A channel thread consists of a root message and its replies. For channel tools,
@@ -526,6 +521,9 @@ use `get_chat_messages` with the returned chat ID and `since: lastMessageReadDat
 Single-message reads keep the `{ totalReturned, hasMore, messages }` response envelope and
 support `contentFormat` (`markdown` or `raw`). Chat list filters, sorting, and pagination
 are ignored when `messageId` is supplied; channel `limit` is also ignored for single reads.
+With `messageId` and `listReplies: true`, `get_channel_messages` lists replies oldest first
+and returns them in `messages`, with `parentMessageId`, `totalReturned` and `hasMore`.
+`listReplies` cannot be combined with `replyId`. Thread roots remain newest first.
 A channel `replyId` requires the parent `messageId`. Reads do not mark messages read.
 
 ```json
@@ -544,13 +542,46 @@ and [mark unread](https://learn.microsoft.com/en-us/graph/api/chat-markchatunrea
 Member `id` identifies the membership record; use `userId` for mentions and user lookup.
 All calls support the existing optional `tenantId` selector.
 
+#### Consolidated tools and migration
+
+The server exposes 26 tools (14 read-only and 12 write tools). Removed names are not aliases:
+
+| Previous tool | Replacement |
+| --- | --- |
+| `get_current_user` | `get_user` with no `userId` |
+| `search_users_for_mentions` | `search_users` with the same `query` and optional `limit` |
+| `get_my_mentions` | `search_messages` with `mentionsMe: true` and optional `hours` |
+| `get_channel_message_replies` | `get_channel_messages` with the same `messageId` and `listReplies: true` |
+| `unset_chat_message_reaction` | `set_chat_message_reaction` with `action: "remove"` |
+| `unset_channel_message_reaction` | `set_channel_message_reaction` with `action: "remove"` |
+
+Both reaction tools default to `action: "add"`; `reactionType` is required for either action.
+`search_users` returns an array (including `[]` for no matches), with `id`, `displayName`,
+`userPrincipalName`, `mail`, and `mentionText` when available. `id` is the user ID to use
+for a mention. Search failures are returned as errors, not as empty results.
+
+`search_messages` accepts a KQL query such as `from:bob hasAttachment:true`, or filters
+without keywords, for example `{ "mentionsMe": true, "hours": 24 }`.
+`mentionsMe` restricts results to current-user mentions and defaults to a 24-hour lookback;
+ordinary queries have no time restriction unless `hours` is supplied (1–168).
+Relevance ranking defaults to off for `mentionsMe` and on otherwise, with
+`enableTopResults` available to override it.
+
+Time filtering uses a date-level KQL prefilter and then checks each returned message's
+exact timestamp. Messages with missing or invalid timestamps are excluded from time-filtered
+results. `size` limits the search page before this filtering. Results always use the
+`results` array, including empty pages; continue with `nextFrom` when
+`moreResultsAvailable` is true, even if the current page is empty. `returned` is the
+number of messages after filtering; `total` is Graph's raw count before local filtering,
+not a guaranteed overall match count. See the
+[Teams Search API limitations](https://learn.microsoft.com/en-us/graph/search-concept-chat-messages#known-limitations).
+
 #### Media Operations
 - `download_message_hosted_content` - Download hosted content (images, files) from channel messages
 - `download_chat_hosted_content` - Download hosted content (images, files) from chat messages
 
 #### Search Operations
-- `search_messages` - Search across all Teams messages using KQL syntax
-- `get_my_mentions` - Find recent messages mentioning the current user
+- `search_messages` - Search Teams messages using KQL, `mentionsMe`, and optional `hours`
 
 ## 📋 Examples
 
