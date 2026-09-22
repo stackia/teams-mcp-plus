@@ -54,11 +54,11 @@ Then add the following configuration in Cursor/Claude/VS Code:
 - Mark chats read or unread for the current user
 - Create 1:1 and group chats, with optional group topics
 - Read chat history with time filters, ordering, pagination, and automatic retrieval of all available pages
-- Read an individual chat message by ID
+- Read individual chat messages by ID, including multiple IDs in one call
 
 ### 🧵 Channel Threads & Messaging
 
-- List channel thread roots and thread replies, or read an individual root message or reply
+- List channel thread roots and thread replies, or read specific messages and replies by ID, individually or in batches
 - Start a new channel thread or reply within an existing thread
 - Send chat messages or quote and reply to an existing chat message
 - Edit or soft delete your own chat messages, channel messages, and channel replies
@@ -431,7 +431,7 @@ those marked **Read** below. Tool schemas provide parameter details.
 | Tool | Access | Function |
 | --- | --- | --- |
 | `list_chats` | Read | List chats with participants, latest-message previews, and read status; optionally return only unread chats. |
-| `get_chat_messages` | Read | Retrieve chat history with filtering, ordering, and pagination, or read a single message. |
+| `get_chat_messages` | Read | Retrieve chat history with filtering, ordering, and pagination, or read specific messages individually or in batches. |
 | `create_chat` | Write | Create a 1:1 or group chat. |
 | `set_chat_read_state` | Write | Mark a chat read or unread for the current user. |
 | `send_chat_message` | Write | Send a chat message or quote and reply to an existing message. |
@@ -445,7 +445,7 @@ those marked **Read** below. Tool schemas provide parameter details.
 | --- | --- | --- |
 | `list_teams` | Read | List teams the current user has joined. |
 | `list_channels` | Read | List a team's channels and their basic details. |
-| `get_channel_messages` | Read | List thread roots or replies, or read a single channel message or reply. |
+| `get_channel_messages` | Read | List thread roots or replies, or read specific channel messages or replies individually or in batches. |
 | `send_channel_message` | Write | Start a new channel thread or reply within an existing thread. |
 | `update_channel_message` | Write | Edit a channel message or reply you sent. |
 | `delete_channel_message` | Write | Soft delete a channel message or reply you sent. |
@@ -511,6 +511,26 @@ npx teams-mcp-plus@latest logout --tenant <tenant-id>
   "contentFormat": "markdown"
 }
 ```
+
+### Read Multiple Messages
+
+Pass an array of IDs to read several messages in one call:
+
+```json
+{ "name": "get_chat_messages", "arguments": { "chatId": "<chat>", "messageId": ["<message-1>", "<message-2>"] } }
+```
+
+For channels, use an array of root message IDs, or a single root ID with an array of reply IDs:
+
+```json
+{ "name": "get_channel_messages", "arguments": { "teamId": "<team>", "channelId": "<channel>", "messageId": ["<root-1>", "<root-2>"] } }
+{ "name": "get_channel_messages", "arguments": { "teamId": "<team>", "channelId": "<channel>", "messageId": "<root>", "replyId": ["<reply-1>", "<reply-2>"] } }
+```
+
+Batches accept up to 50 IDs and query sequentially in input order. Successful reads appear in
+`messages`; failures appear in `errors` with their requested IDs. The entire call is marked as
+an error only when every read fails. List filters, sorting, and limits do not apply to these
+ID-based reads. Existing single-ID calls and list operations remain available.
 
 ### Channel Message with Mentions and Image
 

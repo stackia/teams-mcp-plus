@@ -151,6 +151,144 @@ describe("Chat details and read state", () => {
     }
   );
 
+  describe.each([
+    {
+      name: "get_chat_messages",
+      field: "messageId",
+      args: { chatId: "chat/#" },
+      prefix: "/chats/chat%2F%23/messages/",
+    },
+    {
+      name: "get_channel_messages",
+      field: "messageId",
+      args: { teamId: "team/#", channelId: "channel/#" },
+      prefix: "/teams/team%2F%23/channels/channel%2F%23/messages/",
+    },
+    {
+      name: "get_channel_messages",
+      field: "replyId",
+      args: { teamId: "team/#", channelId: "channel/#", messageId: "root/#" },
+      prefix: "/teams/team%2F%23/channels/channel%2F%23/messages/root%2F%23/replies/",
+    },
+  ])("batch $name by $field", ({ name, field, args, prefix }) => {
+    it("reads sequentially in input order, ignoring list limits and retaining message details", async () => {
+      let resolveFirst!: (value: typeof message) => void;
+      get
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveFirst = resolve;
+            })
+        )
+        .mockResolvedValueOnce({
+          ...message,
+          id: "second",
+          body: { contentType: "text", content: "<b>literal</b>" },
+        });
+      const pending = call(name, {
+        ...args,
+        [field]: ["first/#", "second"],
+        limit: 1,
+        since: "2099-01-01T00:00:00Z",
+        descending: false,
+        fetchAll: true,
+      });
+      await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      expect(api).toHaveBeenCalledExactlyOnceWith(`${prefix}first%2F%23`);
+      resolveFirst({ ...message, id: "first/#" });
+      const result = await pending;
+      expect(result.isError).toBeUndefined();
+      expect(forTenant).toHaveBeenCalledExactlyOnceWith(TENANT_B);
+      expect(api.mock.calls.map(([path]) => path)).toEqual([
+        `${prefix}first%2F%23`,
+        `${prefix}second`,
+      ]);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed).toMatchObject({
+        totalRequested: 2,
+        totalReturned: 2,
+        hasMore: false,
+        errors: [],
+      });
+      expect(parsed.messages).toMatchObject([
+        {
+          id: "first/#",
+          content: "**Hello**",
+          attachments: message.attachments,
+          reactions: message.reactions,
+          sender: message.from,
+        },
+        { id: "second", content: "<b>literal</b>" },
+      ]);
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it("retains successes and reports failures per requested ID", async () => {
+      get
+        .mockRejectedValueOnce(new Error("Graph denied access"))
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...message, id: "ok" });
+      const result = await call(name, {
+        ...args,
+        [field]: ["denied", "missing", "ok"],
+        contentFormat: "raw",
+      });
+      expect(result.isError).toBeUndefined();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed).toMatchObject({
+        totalRequested: 3,
+        totalReturned: 1,
+        hasMore: false,
+        messages: [{ id: "ok", content: "<b>Hello</b>" }],
+      });
+      const target = (id: string) =>
+        field === "replyId" ? { messageId: "root/#", replyId: id } : { messageId: id };
+      expect(parsed.errors).toEqual([
+        { ...target("denied"), error: "Graph denied access" },
+        { ...target("missing"), error: "Message not found." },
+      ]);
+      expect(get).toHaveBeenCalledTimes(3);
+    });
+
+    it("marks an entirely failed batch as an error", async () => {
+      get.mockRejectedValue(new Error("Not found"));
+      const result = await call(name, { ...args, [field]: ["missing"] });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text)).toMatchObject({
+        totalRequested: 1,
+        totalReturned: 0,
+        messages: [],
+        errors: [{ error: "Not found" }],
+      });
+    });
+
+    it("accepts scalar IDs and nonempty arrays of at most 50 nonempty IDs", () => {
+      const schema = server.getTool(name).schema[field];
+      for (const value of ["id", ["id"], Array(50).fill("id")]) {
+        expect(schema.safeParse(value).success).toBe(true);
+      }
+      for (const value of ["", [], [""], ["id", 123], Array(51).fill("id")]) {
+        expect(schema.safeParse(value).success).toBe(false);
+      }
+    });
+  });
+
+  it.each([
+    { messageId: ["root"], replyId: "reply" },
+    { messageId: ["root"], replyId: ["reply"] },
+    { messageId: ["root"], listReplies: true },
+    { messageId: "root", replyId: ["reply"], listReplies: true },
+    { replyId: ["reply"] },
+  ])("rejects ambiguous channel batches %j", async (args) => {
+    const result = await call("get_channel_messages", {
+      teamId: "team",
+      channelId: "channel",
+      ...args,
+    });
+    expect(result.isError).toBe(true);
+    expect(api).not.toHaveBeenCalled();
+  });
+
   it("lists all member pages and distinguishes membership IDs from user IDs", async () => {
     const members = [
       {

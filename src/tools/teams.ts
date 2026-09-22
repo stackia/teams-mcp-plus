@@ -31,7 +31,7 @@ import {
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { markdownToHtml } from "../utils/markdown.js";
-import { singleMessageResult } from "../utils/message-result.js";
+import { batchMessageResult, singleMessageResult } from "../utils/message-result.js";
 import { processMentionsInHtml } from "../utils/users.js";
 
 /**
@@ -189,20 +189,20 @@ export function registerTeamsTools(
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
         messageId: z
-          .string()
-          .min(1)
+          .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(50)])
           .optional()
-          .describe("Thread root message ID. Reads the root unless listReplies or replyId is set."),
+          .describe(
+            "Thread root ID or up to 50 root IDs. Arrays exclude replyId and listReplies; batch failures are returned per ID."
+          ),
         replyId: z
-          .string()
-          .min(1)
+          .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(50)])
           .optional()
-          .describe("Read this reply within the thread identified by messageId."),
+          .describe("Reply ID or up to 50 reply IDs; requires a single thread root messageId."),
         listReplies: z
           .boolean()
           .optional()
           .default(false)
-          .describe("List thread replies; requires messageId and excludes replyId."),
+          .describe("List thread replies; requires a single messageId and excludes replyId."),
         limit: z
           .number()
           .min(1)
@@ -237,9 +237,25 @@ export function registerTeamsTools(
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
+        if (Array.isArray(messageId) && (replyId || listReplies))
+          throw new Error("messageId arrays cannot be combined with replyId or listReplies.");
         if (replyId && !messageId) throw new Error("replyId requires messageId.");
         if (listReplies && (!messageId || replyId))
           throw new Error("listReplies requires messageId and cannot be combined with replyId.");
+        if (Array.isArray(messageId) || Array.isArray(replyId)) {
+          const targets = Array.isArray(messageId)
+            ? messageId.map((id) => ({ messageId: id }))
+            : (replyId as string[]).map((id) => ({ messageId: messageId as string, replyId: id }));
+          return await batchMessageResult(
+            targets,
+            async (target) => {
+              let path = `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(target.messageId)}`;
+              if (target.replyId) path += `/replies/${encodeURIComponent(target.replyId)}`;
+              return client.api(path).get() as Promise<ChatMessage>;
+            },
+            contentFormat ?? "markdown"
+          );
+        }
         if (messageId && !listReplies) {
           let path = `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`;
           if (replyId) path += `/replies/${encodeURIComponent(replyId)}`;

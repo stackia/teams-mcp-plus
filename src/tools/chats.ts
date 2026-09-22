@@ -25,7 +25,7 @@ import {
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { markdownToHtml } from "../utils/markdown.js";
-import { singleMessageResult } from "../utils/message-result.js";
+import { batchMessageResult, singleMessageResult } from "../utils/message-result.js";
 import { processMentionsInHtml } from "../utils/users.js";
 
 /**
@@ -153,15 +153,16 @@ export function registerChatTools(
     "get_chat_messages",
     {
       title: "Get Chat Messages",
-      description: "List chat messages or read one by ID.",
+      description: "List chat messages or read specific messages by ID.",
       inputSchema: {
         ...tenantInputSchema,
         chatId: z.string().describe("Chat ID"),
         messageId: z
-          .string()
-          .min(1)
+          .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(50)])
           .optional()
-          .describe("Read one message; ignores list filters, sorting and pagination."),
+          .describe(
+            "Message ID or up to 50 IDs; ignores list filters, sorting and pagination. Batch failures are returned per ID."
+          ),
         limit: z
           .number()
           .min(1)
@@ -213,6 +214,18 @@ export function registerChatTools(
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
 
+        if (Array.isArray(messageId)) {
+          return await batchMessageResult(
+            messageId.map((id) => ({ messageId: id })),
+            async (target) =>
+              client
+                .api(
+                  `/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(target.messageId)}`
+                )
+                .get() as Promise<ChatMessage>,
+            contentFormat ?? "markdown"
+          );
+        }
         if (messageId) {
           const message = (await client
             .api(`/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`)
