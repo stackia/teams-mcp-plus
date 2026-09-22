@@ -1,3 +1,4 @@
+import type { AadUserConversationMember } from "@microsoft/microsoft-graph-types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { GraphService } from "../services/graph.js";
@@ -24,6 +25,7 @@ import {
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { markdownToHtml } from "../utils/markdown.js";
+import { singleMessageResult } from "../utils/message-result.js";
 import { processMentionsInHtml } from "../utils/users.js";
 
 /**
@@ -151,11 +153,15 @@ export function registerChatTools(
     "get_chat_messages",
     {
       title: "Get Chat Messages",
-      description:
-        "Retrieve recent messages from a specific chat conversation. Returns message content, sender information, and timestamps.",
+      description: "List chat messages or read one by ID.",
       inputSchema: {
         ...tenantInputSchema,
-        chatId: z.string().describe("Chat ID (e.g. 19:meeting_Njhi..j@thread.v2"),
+        chatId: z.string().describe("Chat ID"),
+        messageId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Read one message; ignores list filters, sorting and pagination."),
         limit: z
           .number()
           .min(1)
@@ -176,20 +182,12 @@ export function registerChatTools(
           .optional()
           .default(true)
           .describe("Sort in descending order (newest first)"),
-        fetchAll: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe(
-            "Fetch all messages using pagination (up to limit). When true, follows @odata.nextLink to get more messages."
-          ),
+        fetchAll: z.boolean().optional().default(false).describe("Follow pages up to limit."),
         contentFormat: z
           .enum(["raw", "markdown"])
           .optional()
           .default("markdown")
-          .describe(
-            'Format for message content. "markdown" (default) converts Teams HTML to clean Markdown optimized for LLMs. "raw" returns original HTML from Graph API.'
-          ),
+          .describe("Markdown or original message body."),
       },
       annotations: {
         readOnlyHint: true,
@@ -201,6 +199,7 @@ export function registerChatTools(
     async ({
       tenantId,
       chatId,
+      messageId,
       limit,
       since,
       until,
@@ -213,6 +212,13 @@ export function registerChatTools(
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
+
+        if (messageId) {
+          const message = (await client
+            .api(`/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`)
+            .get()) as ChatMessage;
+          return singleMessageResult(message, contentFormat ?? "markdown");
+        }
 
         // Apply defaults for parameters (in case Zod validation is bypassed)
         const effectiveLimit = limit ?? 20;
@@ -567,8 +573,118 @@ export function registerChatTools(
     }
   );
 
+  // List chat member identities separately from the compact chat list.
+  server.registerTool(
+    "list_chat_members",
+    {
+      title: "List Chat Members",
+      description: "List all chat members with user IDs, emails, tenant IDs and roles.",
+      inputSchema: {
+        ...tenantInputSchema,
+        chatId: z.string().min(1).describe("Chat ID"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ tenantId, chatId }) => {
+      try {
+        const graphService = await graphServices.forTenant(tenantId);
+        const client = await graphService.getClient();
+        const members = [];
+        let nextLink: string | undefined = `/chats/${encodeURIComponent(chatId)}/members`;
+        while (nextLink) {
+          const response: GraphApiResponse<AadUserConversationMember> = await client
+            .api(nextLink)
+            .get();
+          members.push(
+            ...(response.value ?? []).map((member) => ({
+              id: member.id,
+              userId: member.userId,
+              displayName: member.displayName,
+              email: member.email,
+              tenantId: member.tenantId,
+              roles: member.roles,
+              visibleHistoryStartDateTime: member.visibleHistoryStartDateTime,
+            }))
+          );
+          nextLink = response["@odata.nextLink"];
+        }
+        return { content: [{ type: "text", text: JSON.stringify(members, null, 2) }] };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `❌ Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
+
   // --- Write tools (skipped in read-only mode) ---
   if (readOnly) return;
+
+  server.registerTool(
+    "set_chat_read_state",
+    {
+      title: "Set Chat Read State",
+      description: "Mark a chat read or unread for the current user.",
+      inputSchema: {
+        ...tenantInputSchema,
+        chatId: z.string().min(1).describe("Chat ID"),
+        isRead: z.boolean().describe("True: read. False: unread."),
+        lastMessageReadDateTime: z
+          .string()
+          .datetime({ offset: true })
+          .optional()
+          .describe(
+            "Unread only: messages after this time become unread. Omit to mark the latest message unread."
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ tenantId, chatId, isRead, lastMessageReadDateTime }) => {
+      try {
+        const graphService = await graphServices.forTenant(tenantId);
+        if (isRead && lastMessageReadDateTime !== undefined) {
+          throw new Error("lastMessageReadDateTime is only valid when isRead is false.");
+        }
+        const status = await graphService.getAuthStatus();
+        if (!status.isAuthenticated || !status.userId) {
+          throw new Error(status.error ?? "Could not resolve the current user.");
+        }
+        const client = await graphService.getClient();
+        const action = isRead ? "markChatReadForUser" : "markChatUnreadForUser";
+        await client.api(`/chats/${encodeURIComponent(chatId)}/${action}`).post({
+          user: { id: status.userId, tenantId: status.tenantId },
+          ...(!isRead && lastMessageReadDateTime !== undefined ? { lastMessageReadDateTime } : {}),
+        });
+        return { content: [{ type: "text", text: `Chat marked ${isRead ? "read" : "unread"}.` }] };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `❌ Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        };
+      }
+    }
+  );
 
   // Send chat message
   server.registerTool(

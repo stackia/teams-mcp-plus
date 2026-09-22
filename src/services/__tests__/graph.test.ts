@@ -60,6 +60,7 @@ beforeEach(async () => {
     return {
       api: () => ({
         get: async () => ({
+          id: "current-user",
           displayName: await config.authProvider.getAccessToken(),
           userPrincipalName: "user@example.com",
         }),
@@ -105,6 +106,8 @@ describe("multi-tenant Graph service", () => {
     const [sa, sb] = await Promise.all([a.getAuthStatus(), b.getAuthStatus()]);
     expect(sa.displayName).toBe(`token-${TENANT_A}`);
     expect(sb.displayName).toBe(`token-${TENANT_B}`);
+    expect(sa.userId).toBe("current-user");
+    expect(sb.userId).toBe("current-user");
     for (const id of [TENANT_A, TENANT_B]) {
       expect(acquire).toHaveBeenCalledWith(
         expect.objectContaining({

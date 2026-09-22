@@ -33,6 +33,7 @@ export const FULL_SCOPES = [
 export interface AuthStatus {
   tenantId: string;
   isAuthenticated: boolean;
+  userId?: string | undefined;
   userPrincipalName?: string | undefined;
   displayName?: string | undefined;
   expiresAt?: string | undefined;
@@ -218,6 +219,7 @@ export class GraphService {
       return {
         tenantId: this.profile.tenantId,
         isAuthenticated: true,
+        userId: me?.id,
         userPrincipalName: me?.userPrincipalName,
         displayName: me?.displayName,
         expiresAt: this.tokenExpiresAt?.toISOString(),

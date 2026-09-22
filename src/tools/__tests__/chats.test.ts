@@ -40,7 +40,7 @@ describe("Chat Tools", () => {
     it("should register all chat tools", () => {
       registerChatTools(mockServer, mockGraphService, false);
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(10);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(12);
       expect(mockServer.registerTool).toHaveBeenCalledWith(
         "list_chats",
         expect.any(Object),
@@ -91,7 +91,7 @@ describe("Chat Tools", () => {
     it("should register only read-only chat tools when readOnly is true", () => {
       registerChatTools(mockServer, mockGraphService, true);
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(3);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(4);
       expect(mockServer.registerTool).toHaveBeenCalledWith(
         "list_chats",
         expect.any(Object),

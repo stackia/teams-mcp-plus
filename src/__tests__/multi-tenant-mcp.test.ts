@@ -57,7 +57,7 @@ describe("MCP tenant routing", () => {
     await client.connect(clientTransport);
     try {
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(31);
+      expect(tools).toHaveLength(33);
       for (const tool of tools.filter((t) => t.name !== "list_tenants")) {
         expect(tool.inputSchema.properties).toHaveProperty("tenantId");
         expect(tool.inputSchema.required ?? []).not.toContain("tenantId");

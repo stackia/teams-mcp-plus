@@ -31,6 +31,7 @@ import {
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { markdownToHtml } from "../utils/markdown.js";
+import { singleMessageResult } from "../utils/message-result.js";
 import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/users.js";
 
 /**
@@ -182,12 +183,17 @@ export function registerTeamsTools(
     "get_channel_messages",
     {
       title: "Get Channel Messages",
-      description:
-        "Retrieve recent messages from a specific channel in a Microsoft Team. Returns message content, sender information, and timestamps.",
+      description: "List channel messages or read one message or reply by ID.",
       inputSchema: {
         ...tenantInputSchema,
         teamId: z.string().describe("Team ID"),
         channelId: z.string().describe("Channel ID"),
+        messageId: z.string().min(1).optional().describe("Read one message; ignores limit."),
+        replyId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Read this reply; requires its parent messageId."),
         limit: z
           .number()
           .min(1)
@@ -199,9 +205,7 @@ export function registerTeamsTools(
           .enum(["raw", "markdown"])
           .optional()
           .default("markdown")
-          .describe(
-            'Format for message content. "markdown" (default) converts Teams HTML to clean Markdown optimized for LLMs. "raw" returns original HTML from Graph API.'
-          ),
+          .describe("Markdown or original message body."),
       },
       annotations: {
         readOnlyHint: true,
@@ -210,10 +214,18 @@ export function registerTeamsTools(
         openWorldHint: false,
       },
     },
-    async ({ tenantId, teamId, channelId, limit, contentFormat }) => {
+    async ({ tenantId, teamId, channelId, messageId, replyId, limit, contentFormat }) => {
       try {
         const graphService = await graphServices.forTenant(tenantId);
         const client = await graphService.getClient();
+
+        if (replyId && !messageId) throw new Error("replyId requires messageId.");
+        if (messageId) {
+          let path = `/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`;
+          if (replyId) path += `/replies/${encodeURIComponent(replyId)}`;
+          const message = (await client.api(path).get()) as ChatMessage;
+          return singleMessageResult(message, contentFormat ?? "markdown");
+        }
 
         // Build query parameters - Teams channel messages API has limited query support
         // Only $top is supported, no $orderby, $filter, etc.

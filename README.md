@@ -429,11 +429,11 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 ```
 
-**Read-only tools (17):**
-`list_tenants`, `auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
+**Read-only tools (18):**
+`list_tenants`, `auth_status`, `get_current_user`, `search_users`, `get_user`, `list_teams`, `list_channels`, `get_channel_messages`, `get_channel_message_replies`, `list_team_members`, `search_users_for_mentions`, `download_message_hosted_content`, `list_chats`, `list_chat_members`, `get_chat_messages`, `download_chat_hosted_content`, `search_messages`, `get_my_mentions`
 
-**Write tools disabled in read-only mode (14):**
-`send_channel_message`, `reply_to_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
+**Write tools disabled in read-only mode (15):**
+`set_chat_read_state`, `send_channel_message`, `reply_to_channel_message`, `update_channel_message`, `delete_channel_message`, `send_file_to_channel`, `send_chat_message`, `create_chat`, `update_chat_message`, `delete_chat_message`, `send_file_to_chat`, `set_channel_message_reaction`, `unset_channel_message_reaction`, `set_chat_message_reaction`, `unset_chat_message_reaction`
 
 ### Available MCP Tools
 
@@ -449,7 +449,7 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 #### Teams Operations
 - `list_teams` - List user's joined teams
 - `list_channels` - List channels in a specific team
-- `get_channel_messages` - Retrieve messages from a team channel with attachment summaries and content format selection
+- `get_channel_messages` - List channel messages, or pass `messageId` to read one; add `replyId` to read a specific reply
 - `get_channel_message_replies` - Get replies to a specific channel message
 - `send_channel_message` - Send a message to a team channel with optional mentions, importance, and image attachments
 - `reply_to_channel_message` - Reply to an existing channel message
@@ -461,7 +461,9 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id>
 
 #### Chat Operations
 - `list_chats` - List all user's chats (1:1, group, and meeting), with read status and latest-message previews; use `unreadOnly: true` to filter unread chats
-- `get_chat_messages` - Retrieve messages from a specific chat with pagination, filters, ordering, and `fetchAll`
+- `get_chat_messages` - List chat messages with pagination and filters, or pass `messageId` to read one
+- `list_chat_members` - List all chat members with membership IDs, user IDs, names, emails, tenant IDs, roles, and visible history start times
+- `set_chat_read_state` - Mark a chat read (`isRead: true`) or unread (`isRead: false`) for the current user
 - `send_chat_message` - Send a message to a chat
 - `create_chat` - Create a new 1:1 or group chat
 - `update_chat_message` - Edit a previously sent chat message
@@ -490,6 +492,27 @@ Omit `unreadOnly` (or set it to false) to list all chats, including those with u
 This indicates messages after your read position, not other participants' Seen receipts.
 It covers chats, not channels, and does not change read state. To fetch the messages,
 use `get_chat_messages` with the returned chat ID and `since: lastMessageReadDateTime`.
+
+Single-message reads keep the `{ totalReturned, hasMore, messages }` response envelope and
+support `contentFormat` (`markdown` or `raw`). Chat list filters, sorting, and pagination
+are ignored when `messageId` is supplied; channel `limit` is also ignored for single reads.
+A channel `replyId` requires the parent `messageId`. Reads do not mark messages read.
+
+```json
+{ "name": "get_chat_messages", "arguments": { "chatId": "<chat>", "messageId": "<message>" } }
+{ "name": "get_channel_messages", "arguments": { "teamId": "<team>", "channelId": "<channel>", "messageId": "<parent>", "replyId": "<reply>" } }
+{ "name": "list_chat_members", "arguments": { "chatId": "<chat>" } }
+{ "name": "set_chat_read_state", "arguments": { "chatId": "<chat>", "isRead": true } }
+```
+
+`set_chat_read_state` uses the existing delegated `Chat.ReadWrite` permission and is disabled
+in read-only mode. When marking unread, omit `lastMessageReadDateTime` to mark the latest
+message unread, or supply an ISO timestamp to mark messages after that time unread.
+This timestamp is rejected with `isRead: true`. See Graph's
+[mark read](https://learn.microsoft.com/en-us/graph/api/chat-markchatreadforuser?view=graph-rest-1.0)
+and [mark unread](https://learn.microsoft.com/en-us/graph/api/chat-markchatunreadforuser?view=graph-rest-1.0) APIs.
+Member `id` identifies the membership record; use `userId` for mentions and user lookup.
+All calls support the existing optional `tenantId` selector.
 
 #### Media Operations
 - `download_message_hosted_content` - Download hosted content (images, files) from channel messages
