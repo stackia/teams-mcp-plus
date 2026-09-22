@@ -220,6 +220,10 @@ To get the original HTML:
 ## 📦 Installation
 
 ```bash
+# Use the project's Node.js LTS version
+nvm install
+nvm use
+
 # Install dependencies
 npm install
 
