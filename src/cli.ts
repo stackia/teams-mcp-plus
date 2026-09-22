@@ -45,7 +45,7 @@ teams-mcp-plus [--tenant <default-tenant-id>] [--read-only]  Start MCP server
 
 Environment:
   TEAMS_MCP_TENANT_ID     Default tenant (CLI --tenant takes precedence)
-  TEAMS_MCP_CONFIG_DIR    Credential directory (default: ~/.teams-mcp)
+  TEAMS_MCP_CONFIG_DIR    Credential directory (default: ~/.teams-mcp-plus)
   TEAMS_MCP_READ_ONLY=true  Disable write tools
   AUTH_TOKEN             Pre-issued Graph JWT, bound only to its tid claim
 

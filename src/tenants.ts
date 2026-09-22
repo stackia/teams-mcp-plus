@@ -47,7 +47,7 @@ export async function atomicWrite(path: string, data: string): Promise<void> {
 
 export class TenantStore {
   constructor(
-    readonly directory = process.env.TEAMS_MCP_CONFIG_DIR || join(homedir(), ".teams-mcp")
+    readonly directory = process.env.TEAMS_MCP_CONFIG_DIR || join(homedir(), ".teams-mcp-plus")
   ) {}
 
   private tenantDirectory(tenantId: string): string {

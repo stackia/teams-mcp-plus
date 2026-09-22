@@ -298,7 +298,7 @@ Point your MCP client at the built checkout:
 }
 ```
 
-Omit `TEAMS_MCP_CONFIG_DIR` to use `~/.teams-mcp`; if you set it, use the same value when authenticating. For the published package, use `npx -y teams-mcp-plus@latest` instead of `node dist/index.js`.
+Omit `TEAMS_MCP_CONFIG_DIR` to use `~/.teams-mcp-plus`; if you set it, use the same value when authenticating. For the published package, use `npx -y teams-mcp-plus@latest` instead of `node dist/index.js`.
 
 Call `list_tenants` first. Every other tool accepts an optional `tenantId`:
 
@@ -358,7 +358,7 @@ npx teams-mcp-plus@latest authenticate --tenant <tenant-id> --read-only
 
 ### Token Storage
 
-- Each tenant has its own directory: `~/.teams-mcp/<tenant-id>/`.
+- Each tenant has its own directory: `~/.teams-mcp-plus/<tenant-id>/`.
 - `profile.json` records the selected account, label, granted scopes, and login revision.
 - `<revision>.cache.json` contains the MSAL tokens for that login. Files use mode `0600`, and newly created directories use `0700` on POSIX systems. Writes are atomic. These files contain credentials in plaintext; protect the directory.
 - `TEAMS_MCP_CONFIG_DIR` overrides the storage root. All CLI and MCP processes that share connections must use the same directory.
@@ -393,7 +393,7 @@ npx teams-mcp-plus@latest                           # Start MCP server (default)
 
 - `TEAMS_MCP_READ_ONLY=true` - Start the MCP server in read-only mode
 - `TEAMS_MCP_TENANT_ID=<tenant-id>` - Default tenant; `--tenant` takes precedence. Explicit tool `tenantId` overrides both.
-- `TEAMS_MCP_CONFIG_DIR=<path>` - Shared credential directory (default: `~/.teams-mcp`).
+- `TEAMS_MCP_CONFIG_DIR=<path>` - Shared credential directory (default: `~/.teams-mcp-plus`).
 - `AUTH_TOKEN=<jwt>` - Pre-issued Graph token, used only for the tenant in its `tid` claim. Other tenants continue to use their own MSAL credentials. The token must have a valid Graph audience and unexpired `exp`; it is never written to disk or refreshed.
 
 ### Read-Only Mode
@@ -564,7 +564,7 @@ This MCP server is designed to work with AI assistants like Claude/Cursor/VS Cod
 
 - All authentication is handled through Microsoft's OAuth 2.0 flow or a caller-provided Microsoft Graph token
 - **Refresh token support**: Access tokens are automatically renewed using cached refresh tokens, so you don't need to re-authenticate every hour
-- Credentials are isolated per tenant under `~/.teams-mcp/<tenant-id>/`; logout removes all login generations for that tenant.
+- Credentials are isolated per tenant under `~/.teams-mcp-plus/<tenant-id>/`; logout removes all login generations for that tenant.
 - Markdown content is sanitized before sending HTML to Teams
 - `AUTH_TOKEN` routing checks its Graph audience, tenant ID, and expiry. Microsoft Graph validates the token signature and permissions.
 - No sensitive data is logged or exposed
