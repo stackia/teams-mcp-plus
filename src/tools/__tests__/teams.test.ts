@@ -608,7 +608,7 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("get_channel_messages tool", () => {
+  describe("get_channel_messages tool schema", () => {
     it("should register get_channel_messages tool with correct schema", () => {
       registerTeamsTools(mockServer, mockGraphService, false);
 
@@ -1468,7 +1468,7 @@ describe("Teams Tools", () => {
     });
   });
 
-  describe("set_channel_message_reaction tool", () => {
+  describe("set_channel_message_reaction tool (unset)", () => {
     it("should unset a reaction on a channel message", async () => {
       const mockApiChain = {
         post: vi.fn().mockResolvedValue(undefined),

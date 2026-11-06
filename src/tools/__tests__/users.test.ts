@@ -232,7 +232,7 @@ describe("Users Tools", () => {
     });
   });
 
-  describe("get_user tool", () => {
+  describe("get_user tool schema", () => {
     it("should register get_user tool with correct schema", () => {
       registerUsersTools(mockServer, mockGraphService, false);
 
