@@ -45,11 +45,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stackia/teams-mcp.git"
+    "url": "git+https://github.com/stackia/teams-mcp-plus.git"
   },
-  "homepage": "https://github.com/stackia/teams-mcp#readme",
+  "homepage": "https://github.com/stackia/teams-mcp-plus#readme",
   "bugs": {
-    "url": "https://github.com/stackia/teams-mcp/issues"
+    "url": "https://github.com/stackia/teams-mcp-plus/issues"
   },
   "dependencies": {
     "@azure/msal-node": "7.2.0",

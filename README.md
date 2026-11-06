@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/teams-mcp-plus.svg)](https://www.npmjs.com/package/teams-mcp-plus)
 [![npm downloads](https://img.shields.io/npm/dm/teams-mcp-plus.svg)](https://www.npmjs.com/package/teams-mcp-plus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/stackia/teams-mcp.svg)](https://github.com/stackia/teams-mcp/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/stackia/teams-mcp-plus.svg)](https://github.com/stackia/teams-mcp-plus/stargazers)
 
 A Microsoft Teams MCP server with multi-tenant support. Connect multiple organizations in one server, with isolated credentials and explicit tenant selection for chats, channels, users, search, and file operations.
 
